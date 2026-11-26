@@ -2897,6 +2897,11 @@ struct MachineParams: Codable, Equatable {
     var restartUnit: ChordsRestartUnit? = nil   // BAR · LOOP · RIFF; nil ⇒ BAR
     var restartLane: Int? = nil                 // 0…3, the lane LOOP/RIFF restart counts; nil ⇒ lane 1 (index 0)
     var restartEvery: Int? = nil                // ∈ {1,2,3,4,6,8,12,16}; nil ⇒ 4
+    // RESETS V3 (2026-11-24) §1.6 / C-toggle: by default the grid is INSULATED from the document-level ALL reset (it
+    // reads the no-ALL schedule). When ON, a LOOP / RIFF advance or restart counts ALL's restarts too (the grid
+    // advances on them). Additive-Optional, decode-tolerant (synthesized Codable); nil ⇒ false ⇒ every existing
+    // document byte-identical. Engine-only — the page's chord-NAME display stays on the ALL schedule (a known limit).
+    var honourRestarts: Bool? = nil
     var advanceUnitResolved: ChordsAdvanceUnit { advanceUnit ?? .time }
     var advanceLaneResolved: Int { let l = advanceLane ?? 0; return (0...3).contains(l) ? l : 0 }                     // §2.3: out of 0…3 ⇒ default
     var advanceEveryResolved: Int { let e = advanceEvery ?? 1; return chordsAdvanceEveryValues.contains(e) ? e : 1 }  // §2.3: out of the set ⇒ default
@@ -2904,6 +2909,7 @@ struct MachineParams: Codable, Equatable {
     var restartUnitResolved: ChordsRestartUnit { restartUnit ?? .bar }
     var restartLaneResolved: Int { let l = restartLane ?? 0; return (0...3).contains(l) ? l : 0 }
     var restartEveryResolved: Int { let e = restartEvery ?? 4; return chordsRestartEveryValues.contains(e) ? e : 4 }
+    var honourRestartsResolved: Bool { honourRestarts ?? false }   // RESETS V3 C-toggle: nil ⇒ insulated
     /// The 8-step degree matrix, resolved — defaults to a I–vi–IV–V loop (0,0,5,5,3,3,4,4) so a fresh CHORDS plays.
     // SIZED TO THE MATRIX WIDTH (Paul 2026-09-16 fix): pad/truncate the degrees to EXACTLY `steps`, so chordsDegreeAt (which
     // loops on degrees.count) plays every authored column of a 9…16-wide matrix — the old fixed-8 truncation dropped columns

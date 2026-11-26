@@ -600,6 +600,7 @@ struct EuclideousHarmonyPage: View {
         return VStack(alignment: .leading, spacing: EuclideousHarmonyMetrics.popoverRowGap) {
             advanceRow(set, R)
             restartRow(set, R)
+            honourRow(set, R)
         }
         .frame(width: innerW, alignment: .leading)
     }
@@ -663,6 +664,22 @@ struct EuclideousHarmonyPage: View {
         }
         .frame(width: R.innerW, height: EuclideousHarmonyMetrics.popoverRowH, alignment: .leading)
         .accessibilityElement(children: .contain)
+    }
+    /// RESETS V3 C-toggle: HONOUR RESTARTS — when on, this grid's LOOP / RIFF advance (or restart) counts the document-level ALL reset's restarts too, so the grid steps on them; off (default) the grid is insulated from ALL. One undo step; nil stored for off keeps every pre-feature document byte-identical.
+    private func honourRow(_ set: Int, _ R: EuclideousHarmonyPopoverRows) -> some View {
+        let cfg = chordSets[min(set, max(0, chordSets.count - 1))]
+        let on = cfg.honourRestartsResolved
+        return HStack(spacing: 0) {
+            Text("HONOUR").font(mono(7.5)).tracking(0.1 * 7.5).foregroundColor(Color(h: 0x8A909A)).lineLimit(1).frame(width: R.labelW, alignment: .leading)
+            Spacer().frame(width: 4)
+            Text("step on ALL resets").font(mono(7.5)).foregroundColor(Color(h: on ? 0xBFC4CC : 0x6A6F78)).lineLimit(1).minimumScaleFactor(0.7)
+            Spacer(minLength: 0)
+            restartSwitch(on: on) { onEditChordSet(set) { $0.honourRestarts = on ? nil : true } }   // nil (off) ⇒ insulated, byte-identical
+        }
+        .frame(width: R.innerW, height: EuclideousHarmonyMetrics.popoverRowH, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Honour ALL resets")
+        .accessibilityValue(on ? "on" : "off")
     }
 
     // MARK: 5.11 the PICK editor (the sources panel's, re-hosted at the popover's width)

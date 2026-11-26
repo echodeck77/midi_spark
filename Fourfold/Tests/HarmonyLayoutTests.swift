@@ -35,7 +35,7 @@ final class HarmonyLayoutTests: XCTestCase {
         XCTAssertEqual(L.cellW(steps: 3), L.cellW(steps: 8), "fewer than 8 steps still lays out 8 columns")
         XCTAssertEqual(L.columnLeft(steps: 8, 0), 36); XCTAssertEqual(L.columnLeft(steps: 8, 7) + L.cellW(steps: 8), L.columnW, accuracy: 0.001)
         // popovers
-        XCTAssertEqual(euclideousHarmonyPopoverHeight, 80); XCTAssertEqual(euclideousHarmonyPickPopoverHeight, 72)
+        XCTAssertEqual(euclideousHarmonyPopoverHeight, 114); XCTAssertEqual(euclideousHarmonyPickPopoverHeight, 72)   // RESETS V3 C-toggle: 3 rows now (ADVANCE / RESTART / HONOUR)
         let pop = L.pillPopover(set: 0)
         XCTAssertEqual(pop.width, L.columnW); XCTAssertEqual(pop.minY, L.column0.minY + 26 + 6, accuracy: 0.001)
         XCTAssertEqual(L.pickPopover.maxY + 6, L.pickStrip.minY, accuracy: 0.001); XCTAssertEqual(L.pickPopover.width, L.pickStrip.width)

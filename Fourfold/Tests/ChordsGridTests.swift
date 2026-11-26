@@ -366,6 +366,7 @@ final class ChordsAdvanceModelTests: XCTestCase {
         XCTAssertEqual(p.restartUnitResolved, .bar)
         XCTAssertEqual(p.restartLaneResolved, 0)
         XCTAssertEqual(p.restartEveryResolved, 4)
+        XCTAssertNil(p.honourRestarts); XCTAssertEqual(p.honourRestartsResolved, false)   // RESETS V3 C-toggle: nil ⇒ insulated from ALL
     }
 
     // §2.3: an out-of-set numeric value resolves to the default; an in-set one survives.
@@ -400,11 +401,13 @@ final class ChordsAdvanceModelTests: XCTestCase {
         var p = MachineParams()
         p.advanceUnit = .riff; p.advanceLane = 2; p.advanceEvery = 6
         p.restartOn = true; p.restartUnit = .loop; p.restartLane = 1; p.restartEvery = 12
+        p.honourRestarts = true
         let back = try JSONDecoder().decode(MachineParams.self, from: JSONEncoder().encode(p))
         XCTAssertEqual(back.advanceUnit, .riff); XCTAssertEqual(back.advanceLane, 2); XCTAssertEqual(back.advanceEvery, 6)
         XCTAssertEqual(back.restartOn, true); XCTAssertEqual(back.restartUnit, .loop); XCTAssertEqual(back.restartLane, 1); XCTAssertEqual(back.restartEvery, 12)
+        XCTAssertEqual(back.honourRestarts, true)   // RESETS V3 C-toggle: round-trips
         let s = String(data: try JSONEncoder().encode(MachineParams()), encoding: .utf8)!
-        for k in ["advanceUnit", "advanceLane", "advanceEvery", "restartOn", "restartUnit", "restartLane", "restartEvery"] {
+        for k in ["advanceUnit", "advanceLane", "advanceEvery", "restartOn", "restartUnit", "restartLane", "restartEvery", "honourRestarts"] {
             XCTAssertFalse(s.contains("\"\(k)\""), "a default MachineParams must not encode \(k) (nil omitted → §2.4)")
         }
     }
@@ -413,9 +416,9 @@ final class ChordsAdvanceModelTests: XCTestCase {
     // field is forgotten in the grid-1 assignments or the grid-2 ChordGridSnap literal).
     func testSnapshotCarriesAdvanceRestartForBothGrids() {
         var g1 = MachineParams(); g1.advanceUnit = .riff; g1.advanceLane = 2; g1.advanceEvery = 6
-        g1.restartOn = true; g1.restartUnit = .loop; g1.restartLane = 1; g1.restartEvery = 12
+        g1.restartOn = true; g1.restartUnit = .loop; g1.restartLane = 1; g1.restartEvery = 12; g1.honourRestarts = true
         var g2 = MachineParams(); g2.advanceUnit = .loop; g2.advanceLane = 3; g2.advanceEvery = 3
-        g2.restartOn = true; g2.restartUnit = .riff; g2.restartLane = 2; g2.restartEvery = 16
+        g2.restartOn = true; g2.restartUnit = .riff; g2.restartLane = 2; g2.restartEvery = 16   // g2 leaves honourRestarts nil (insulated)
 
         var gold = Machine(machineID: "gold", type: .euclid)
         gold.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8)]
@@ -431,6 +434,8 @@ final class ChordsAdvanceModelTests: XCTestCase {
         XCTAssertEqual(p.chords2.advanceUnit, .loop); XCTAssertEqual(p.chords2.advanceLane, 3); XCTAssertEqual(p.chords2.advanceEvery, 3)
         XCTAssertEqual(p.chords2.restartOn, true); XCTAssertEqual(p.chords2.restartUnit, .riff)
         XCTAssertEqual(p.chords2.restartLane, 2); XCTAssertEqual(p.chords2.restartEvery, 16)
+        XCTAssertTrue(p.chordsHonourRestarts, "RESETS V3 C-toggle: grid 1 honours restarts")       // grid 1 on
+        XCTAssertFalse(p.chords2.honourRestarts, "grid 2 left nil ⇒ insulated")                     // grid 2 off
     }
 
     // A default document's snapshot is the pre-ferry progression on both grids (inert → golden byte-identical).
@@ -443,6 +448,7 @@ final class ChordsAdvanceModelTests: XCTestCase {
         let p = SnapshotBuilder.build(from: st).cells[0 * Snap.rows + Snap.euclideousRow].procs[0]
         XCTAssertEqual(p.chordsAdvanceUnit, .time); XCTAssertFalse(p.chordsRestartOn)
         XCTAssertEqual(p.chords2.advanceUnit, .time); XCTAssertFalse(p.chords2.restartOn)
+        XCTAssertFalse(p.chordsHonourRestarts); XCTAssertFalse(p.chords2.honourRestarts)   // RESETS V3 C-toggle: default ⇒ both insulated (golden byte-identical)
     }
 
     // §2.7 / undo: the fields ride a whole-MachineParams copy (Equatable notices a change so undo/resync record it).

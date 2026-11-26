@@ -109,8 +109,8 @@ struct EuclideousHarmonyLayout: Equatable {
     }
 }
 
-/// 5.9: padding 10 + the ADVANCE row + 8 + the RESTART row + padding 10.
-let euclideousHarmonyPopoverHeight: CGFloat = 2 * EuclideousHarmonyMetrics.popoverPad + 2 * EuclideousHarmonyMetrics.popoverRowH + EuclideousHarmonyMetrics.popoverRowGap
+/// 5.9: padding 10 + the ADVANCE row + 8 + the RESTART row + 8 + the HONOUR row (RESETS V3 C-toggle) + padding 10.
+let euclideousHarmonyPopoverHeight: CGFloat = 2 * EuclideousHarmonyMetrics.popoverPad + 3 * EuclideousHarmonyMetrics.popoverRowH + 2 * EuclideousHarmonyMetrics.popoverRowGap
 /// 5.11: padding 10 + the key row (52) + padding 10.
 let euclideousHarmonyPickPopoverHeight: CGFloat = 2 * EuclideousHarmonyMetrics.popoverPad + EuclideousHarmonyMetrics.pickKeyH
 

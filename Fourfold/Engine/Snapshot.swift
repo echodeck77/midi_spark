@@ -513,6 +513,7 @@ struct SnapParams {
     var chordsRestartUnit: ChordsRestartUnit = .bar
     var chordsRestartLane: Int = 0
     var chordsRestartEvery: Int = 4
+    var chordsHonourRestarts: Bool = false   // RESETS V3 C-toggle: grid 1 advances on ALL's restarts too (default off ⇒ insulated; the Router picks the full vs no-ALL schedule from this)
     // TWO CHORD GRIDS ferry (Paul 2026-11-03): the Euclideous row's SECOND progression. `chords*` above is grid 1; a lane whose SOURCES mask has CHORDS 2 reads this one (`chordSeqNotes(…, grid: 1)`). Default = the default progression,
     // so a row that never sets it is unchanged; only `SnapshotBuilder` writes it (from `euclideousChordSetsResolved[1]`).
     var chords2 = ChordGridSnap()
@@ -535,6 +536,7 @@ struct ChordGridSnap: Equatable {
     var restartUnit: ChordsRestartUnit = .bar
     var restartLane: Int = 0
     var restartEvery: Int = 4
+    var honourRestarts: Bool = false   // RESETS V3 C-toggle: grid 2 advances on ALL's restarts too (default off ⇒ insulated)
 }
 
 

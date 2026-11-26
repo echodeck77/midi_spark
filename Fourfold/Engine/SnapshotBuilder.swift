@@ -206,13 +206,15 @@ enum SnapshotBuilder {
                     sc.procs[0].chordsRestartUnit = chordCfg.restartUnitResolved
                     sc.procs[0].chordsRestartLane = chordCfg.restartLaneResolved
                     sc.procs[0].chordsRestartEvery = chordCfg.restartEveryResolved
+                    sc.procs[0].chordsHonourRestarts = chordCfg.honourRestartsResolved   // RESETS V3 C-toggle: grid 1 honours ALL's restarts when on (default off ⇒ insulated)
                     let chord2 = chordSets[1]
                     let steps2 = chord2.chordsStepsResolved
                     sc.procs[0].chords2 = ChordGridSnap(degrees: chord2.chordsDegreesResolved(steps: steps2), voicing: chord2.chordsVoicingResolved, spread: chord2.chordsSpreadResolved,
                                                         rotate: chord2.chordsRotate ?? 0, rateBeats: max(0.03125, chord2.chordsRateResolved.beats), steps: steps2,
                                                         colours: Array(chord2.chordsColoursResolved16().prefix(steps2)),
                                                         advanceUnit: chord2.advanceUnitResolved, advanceLane: chord2.advanceLaneResolved, advanceEvery: chord2.advanceEveryResolved,
-                                                        restartOn: chord2.restartOnResolved, restartUnit: chord2.restartUnitResolved, restartLane: chord2.restartLaneResolved, restartEvery: chord2.restartEveryResolved)
+                                                        restartOn: chord2.restartOnResolved, restartUnit: chord2.restartUnitResolved, restartLane: chord2.restartLaneResolved, restartEvery: chord2.restartEveryResolved,
+                                                        honourRestarts: chord2.honourRestartsResolved)   // RESETS V3 C-toggle: grid 2 honours ALL's restarts when on
                     sc.procs[0].euclideousChordKeyRoot = doc.euclideousKeyRootResolved
                     sc.procs[0].euclideousChordKeyTones = doc.euclideousKeyTypeResolved.intervals
                 }
