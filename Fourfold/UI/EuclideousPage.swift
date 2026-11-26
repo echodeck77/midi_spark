@@ -8294,9 +8294,7 @@ struct EuclideousPage: View {
             Text("POOL").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
             if line.laneModeResolved == .kit {
                 kitPoolChips(idx, line, accent, size: CGSize(width: chipsW, height: height))   // KIT SOURCE §5.4: the lane's kit, each cell tapping open the editor
-            } else if line.laneModeResolved == .drum {
-                drumPoolChips(idx, line, accent, size: CGSize(width: chipsW, height: height))   // DRUM MODE §3.3: the per-rank ramp velocity, each cell tapping open the drum picker
-            } else {
+            } else {   // DRUM CARD V2 §5: POOL is not drawn in DRUM (poolNowRow isn't called for a DRUM lane); the old drumPoolChips branch is removed
                 PoolNowChipsView(lane: idx, tint: lane100(accent), size: CGSize(width: chipsW, height: height),
                                  octave: line.octaveResolved,   // §5.1: the lane's NOTES octave, the same the STACK grid applies
                                  source: noteSource, keyRoot: keyRoot, keyType: keyType,
@@ -8319,30 +8317,7 @@ struct EuclideousPage: View {
             }
         }.frame(width: size.width, height: size.height))
     }
-    /// DRUM MODE §3.3: eight POOL cells showing each rank's RAMP velocity (number + "%"), a lane-colour fill behind at the velocity; a tap opens the drum picker.
-    private func drumPoolChips(_ lane: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
-        let ramp = euclideousDrumRampVels(low: line.drumLowResolved, high: line.drumHighResolved, ramp: line.drumRampResolved)
-        let name = euclideousGMDrumName(euclideousDrumNote(line, lane: lane))
-        let gap: CGFloat = 3, w = max(1, (size.width - gap * 7) / 8)
-        return AnyView(HStack(spacing: gap) {
-            ForEach(0..<8, id: \.self) { r in
-                let v = Int(ramp[r])
-                ZStack(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.card))
-                    RoundedRectangle(cornerRadius: 6).fill(lane100(accent).opacity(0.20)).frame(height: max(0, size.height * CGFloat(v) / 100))
-                    VStack(spacing: 0) {
-                        Text("\(r + 1)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                        Text("\(v)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.5)
-                        Text("%").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0xA6ACB6))   // LEGIBILITY (Paul 2026-11-26): the % one shade lighter
-                    }
-                }
-                .frame(width: w, height: size.height).clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x202329), lineWidth: 1))
-                .contentShape(Rectangle()).onTapGesture { openDrumPicker(lane: lane) }
-                .accessibilityElement(children: .ignore).accessibilityLabel("Rank \(r + 1), \(name), velocity \(v) percent").accessibilityAddTraits(.isButton)
-            }
-        }.frame(width: size.width, height: size.height))
-    }
+    // DRUM CARD V2 §5: `drumPoolChips` (the POOL-in-DRUM cells that opened the picker) is REMOVED — POOL isn't drawn in DRUM.
     private func kitPoolCell(lane: Int, rank: Int, note: UInt8, name: String, vel: Int, accent: Color, size: CGSize) -> some View {
         ZStack(alignment: .bottom) {
             RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.card))
@@ -8765,15 +8740,8 @@ struct EuclideousPage: View {
         return VStack(spacing: 3) { seg(.up); seg(.down) }.padding(3).frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: FourfoldStyle.card)))
     }
-    /// DRUM MODE §4.1: open the drum picker (the kit editor in its DRUM variant) on `lane`.
-    private func openDrumPicker(lane: Int) {
-        closeAllOtherOverlays()
-        let note = euclideousDrumNote(lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all), lane: lane)
-        kitEditorRangeLow = euclideousKitEditorRangeLowC(note: note)
-        kitEditorPrevNote = note
-        kitEditorIsDrumPicker = true
-        kitEditor = KitEditorTarget(lane: lane, rank: 0)
-    }
+    // DRUM CARD V2 §5: `openDrumPicker` is REMOVED — DRUM opens no overlay; the drum is chosen on the card (§3.3). The kit
+    // editor's own DRUM button (kit ferry §4.5) is a different path and stays; `kitEditorIsDrumPicker` is now always false.
     /// §2.3a: one SOURCES toggle chip (MIDI IN / PICK / KEY) — NEUTRAL fills with a small lane-colour LAMP (the only lane colour in the row). On: #30333B / 1 pt #454952 / label #F2F4F7 / filled lane lamp. Off: #202227 / 1 pt #2B2D33 / label #8A909A / a 0.75 pt #4A4E57 ring lamp, no fill. Padding 0 8, a 4.5 pt lamp, sp5, then the label.
     private func poolSourceChip(_ name: String, on: Bool, w: CGFloat, height: CGFloat, accent: Color, ax: String, axValue: String, tap: @escaping () -> Void) -> some View {
         HStack(spacing: 5) {
