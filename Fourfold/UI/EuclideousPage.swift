@@ -1114,6 +1114,12 @@ struct EuclideousPage: View {
     @State private var kitEditorNameDraft: String = ""          // §4.4 the NAME field's in-progress text
     @State private var kitEditorIsDrumPicker = false            // DRUM MODE §4.1: the open editor is the DRUM picker (no RESET / ranks / NAME; a key sets the lane's drum note)
     @State private var drumVelDragging = false                  // DRUM MODE §3.5: the two-thumb VEL drag's one-undo-step-per-drag flag
+    // DRUM CARD V2 §1.2 (2026-11-26): the scrub's transient state (never saved, reset on mode/load). `drumScrubLane` nil = not scrubbing.
+    @State private var drumScrubLane: Int? = nil
+    @State private var drumScrubStartNote: Int = 0
+    @State private var drumScrubNote: Int = 0                    // the current note under the finger (drives the field highlight)
+    @State private var drumStepTask: Task<Void, Never>? = nil    // the ‹ › hold-repeat task (400 ms then 80 ms); cancelled on release
+    @State private var drumScrubWrote = false                   // §1.3: whether this drag has recorded an undo step yet (first write = newStep)
     @State private var lastSelectedKitRank: [Int: Int] = [:]     // INPUTS MODE §3.4: the rank last selected per lane, so KIT-row EDIT reopens on it (nil ⇒ rank 1)
     @State private var kitTemplatePickerOpen = false             // KIT TEMPLATES §3.2: the template picker over the kit editor body (UI only)
     // RIBBON SETTINGS §6.1: in TUTTI mode a touch-down toggles ONE mark (the column/rank under the touch); the rest of the drag does nothing. This guards "only the first change of a drag acts".
@@ -8559,40 +8565,101 @@ struct EuclideousPage: View {
             .frame(width: w, height: height)
     }
     /// DRUM MODE §3.4: the DRUM row — label, the drum button (name + note + chevron, opens the picker), and the ramp UP/DOWN switch.
+    /// DRUM CARD V2 §3.3 — the DRUM row: label, the 190×46 scrub selector `‹ | NUMBER NAME | ›` (no drum name, no chevron
+    /// affordance, no pop-up), then CONVERT DRUM TO KIT. Drag the number to scrub (12 pt/note), tap/hold ‹ › to step one note;
+    /// it sounds as you go (live hits while playing, an audition while stopped, §2.2/§2.4).
     private func drumRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
-        // PROMINENT DRUM PICKER (Paul 2026-11-26): the drum selector is the HERO of the row — TO KIT + the ramp switch gave up width
-        // (96/132 → 66/92) so the picker can't truncate to "…". It wears an accent border + chevron so it reads as THE picker, and
-        // shows the selected drum NAME big with its MIDI note in a badge.
-        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 8, rampW: CGFloat = 92, toKitW: CGFloat = 66
-        let note = euclideousDrumNote(line, lane: idx)
-        let name = euclideousGMDrumName(note)
-        let btnW = max(1, fullWidth - labelW - gap * 3 - toKitW - rampW)
-        let h = min(EuclideousPoolTabMetrics.toggleH, height)
-        return AnyView(HStack(spacing: 0) {
-            Text("DRUM").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            HStack(spacing: 8) {   // the drum picker — the hero
-                Text(name).font(.system(size: 18, weight: .heavy, design: .monospaced)).tracking(0.6).lineLimit(1).minimumScaleFactor(0.55).foregroundColor(Color(hex: 0xF2F4F7))
-                if btnW >= 118 {   // the MIDI note in a small badge, only when there is room
-                    Text("\(Int(note))").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xC6CBD3))
-                        .padding(.horizontal, 6).frame(height: 17).background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0x363A42)))
-                }
-                Spacer(minLength: 4)
-                EuclideousChevronDown().stroke(lane100(accent), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)).frame(width: 11, height: 7)
-            }
-            .padding(.horizontal, 12).frame(width: btnW, height: h)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(lane100(accent).opacity(0.55), lineWidth: 1))
-            .contentShape(Rectangle()).onTapGesture { openDrumPicker(lane: idx) }
-            .accessibilityElement(children: .ignore).accessibilityLabel("Drum, \(name), note \(Int(note))").accessibilityHint("Choose the drum").accessibilityAddTraits(.isButton)
-            Spacer(minLength: gap)
-            Text("TO KIT").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.6).lineLimit(1).minimumScaleFactor(0.55).foregroundColor(Color(hex: 0xAAB0BA))
-                .frame(width: toKitW, height: h).background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
-                .contentShape(Rectangle()).onTapGesture { toKitFromDrum(lane: idx) }
-                .accessibilityElement(children: .ignore).accessibilityLabel("Make kit from drum").accessibilityAddTraits(.isButton)
-            Spacer(minLength: gap)
-            drumRampSwitch(idx, line, w: rampW, height: h)
+        let note = Int(euclideousDrumNote(line, lane: idx))
+        let f = euclideousDrumRowFrames(rowWidth: fullWidth, rowHeight: height, labelW: EuclideousPoolTabMetrics.labelColumn)
+        let laneCol = lane100(accent)
+        let scrubbing = drumScrubLane == idx
+        let shown = scrubbing ? drumScrubNote : note
+        func posTL<V: View>(_ r: CGRect, _ content: () -> V) -> some View {
+            content().frame(width: r.width, height: r.height, alignment: .center).offset(x: r.minX, y: r.minY)
         }
-        .frame(width: fullWidth, height: height))
+        return AnyView(ZStack(alignment: .topLeading) {
+            posTL(f.label) { Text("DRUM").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: f.label.width, alignment: .leading).accessibilityHidden(true) }
+            posTL(f.selector) { RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x1E2026)).overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(laneCol, lineWidth: 1.5)) }
+            posTL(f.leftDivider) { Rectangle().fill(Color(hex: 0x33363E)) }
+            posTL(f.rightDivider) { Rectangle().fill(Color(hex: 0x33363E)) }
+            posTL(f.field) { drumField(idx: idx, shown: shown, docNote: note, laneCol: laneCol, scrubbing: scrubbing) }
+            posTL(f.decButton) { drumChevron(idx: idx, left: true, laneCol: laneCol) }
+            posTL(f.incButton) { drumChevron(idx: idx, left: false, laneCol: laneCol) }
+            posTL(f.convert) { drumConvertButton(idx: idx) }
+        }
+        .frame(width: fullWidth, height: height, alignment: .topLeading))
+    }
+    /// §3.3 the field: `NUMBER NAME`, baseline-aligned, with the vertical scrub (12 pt/note) + the scrubbing fill.
+    private func drumField(idx: Int, shown: Int, docNote: Int, laneCol: Color, scrubbing: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Text("\(shown)").font(.system(size: 24, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+            Text(euclideousNoteViewName(UInt8(shown), flatKey: false)).font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 6).fill(scrubbing ? laneCol.opacity(0.18) : Color.clear))
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { v in
+                let starting = drumScrubLane != idx
+                if starting { drumScrubLane = idx; drumScrubStartNote = docNote; drumScrubNote = docNote; drumScrubWrote = false }
+                let nn = euclideousDrumScrubNote(startNote: drumScrubStartNote, startY: v.startLocation.y, y: v.location.y)
+                guard nn != drumScrubNote else { return }
+                drumScrubNote = nn
+                let cur = idx < lines.count ? Int(euclideousDrumNote(lines[idx], lane: idx)) : docNote
+                if nn != cur {
+                    editStep(idx, !drumScrubWrote) { $0.drumNote = UInt8(nn) }   // §2.2 live; §1.3 one undo step per drag
+                    drumScrubWrote = true
+                    if !clock.playing { drumAudition(idx, nn) }                   // §2.4 stopped ⇒ audition; playing ⇒ the live hits are what you hear
+                }
+            }
+            .onEnded { _ in drumScrubLane = nil })
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Drum note")
+        .accessibilityValue("\(shown), \(euclideousAccessibleNoteName(UInt8(shown), flatKey: false))")
+        .accessibilityAdjustableAction { d in drumStepNote(idx, by: d == .increment ? 1 : -1, newStep: true) }
+    }
+    /// §3.3 a ‹ / › stepper: tap = ±1 (one undo step); hold repeats after 400 ms every 80 ms (one undo step from touch-down).
+    private func drumChevron(idx: Int, left: Bool, laneCol: Color) -> some View {
+        DrumSelectorChevron(left: left).stroke(laneCol, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+            .frame(width: 10, height: 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard drumStepTask == nil else { return }
+                    drumStepNote(idx, by: left ? -1 : 1, newStep: true)
+                    drumStepTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 400_000_000)
+                        while !Task.isCancelled { drumStepNote(idx, by: left ? -1 : 1, newStep: false); try? await Task.sleep(nanoseconds: 80_000_000) }
+                    }
+                }
+                .onEnded { _ in drumStepTask?.cancel(); drumStepTask = nil })
+            .accessibilityElement(children: .ignore).accessibilityLabel(left ? "Note down" : "Note up").accessibilityAddTraits(.isButton)
+    }
+    /// §3.3 CONVERT DRUM TO KIT — two lines, filling the row; does what TO KIT did (one undo step).
+    private func drumConvertButton(idx: Int) -> some View {
+        VStack(spacing: 1) {
+            Text("CONVERT DRUM").tracking(0.1 * 9.5); Text("TO KIT").tracking(0.1 * 9.5)
+        }
+        .font(.system(size: 9.5, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xB4B9C1)).multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x22242A)))
+        .contentShape(Rectangle()).onTapGesture { toKitFromDrum(lane: idx) }
+        .accessibilityElement(children: .ignore).accessibilityLabel("Convert drum to kit").accessibilityAddTraits(.isButton)
+    }
+    /// §3.3 one-note step from the ‹ › steppers / VoiceOver — clamps 0–127; a stopped step auditions (§2.4).
+    private func drumStepNote(_ idx: Int, by delta: Int, newStep: Bool) {
+        guard idx < lines.count else { return }
+        let cur = Int(euclideousDrumNote(lines[idx], lane: idx))
+        let nn = max(0, min(127, cur + delta))
+        guard nn != cur else { return }
+        editStep(idx, newStep) { $0.drumNote = UInt8(nn) }
+        if !clock.playing { drumAudition(idx, nn) }
+    }
+    /// §2.4 the stopped audition — the new note once at drumHigh through the lane's outputs (reusing the kit one-shot).
+    private func drumAudition(_ idx: Int, _ note: Int) {
+        guard idx < lines.count else { return }
+        if let v = euclideousKitScaledVelocity(base: 100, kitVel: lines[idx].drumHighResolved) { onKitAudition(idx, note, Int(v)) }
     }
     /// §4.2 TO KIT: turn the drum + its ramp into a kit (notes = drum note, names = drum GM name, velocities = the ramp), and switch the lane to KIT — one undo step. The drum's own fields are unchanged, so switching back to DRUM restores it; undo brings back the old kit + mode.
     private func toKitFromDrum(lane: Int) {
@@ -8621,25 +8688,82 @@ struct EuclideousPage: View {
             .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: FourfoldStyle.card)))
     }
     /// DRUM MODE §3.5: the VEL row — low %, a two-thumb slider, high %. A drag sounds nothing; one undo step per thumb drag; the thumbs meet but never cross.
+    /// DRUM CARD V2 §3.4 — the VEL section (96 tall): the 8 rank-velocity BARS + the two-thumb slider on the left, a 40-wide
+    /// right column with the headphone (the rank preview, §4) + the vertical UP/DOWN ramp switch.
     private func drumVelRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
-        let labelW = EuclideousPoolTabMetrics.labelColumn, lowW: CGFloat = 52, highW: CGFloat = 60, gap: CGFloat = 8
-        let low = line.drumLowResolved, high = line.drumHighResolved
-        let sliderW = max(1, fullWidth - labelW - lowW - highW - gap * 3)
-        return AnyView(HStack(spacing: 0) {
+        let labelW = EuclideousPoolTabMetrics.labelColumn, rightW: CGFloat = 40, gap: CGFloat = 8
+        let low = line.drumLowResolved, high = line.drumHighResolved, ramp = line.drumRampResolved
+        let laneCol = lane100(accent)
+        let leftW = max(1, fullWidth - labelW - rightW - gap)
+        let (colW, xs) = euclideousDrumVelColumns(width: leftW)
+        let lowW: CGFloat = 34, highW: CGFloat = 38, sgap: CGFloat = 8
+        let sliderW = max(1, leftW - lowW - highW - sgap * 2)
+        let velOf: (Int) -> Int = { euclideousDrumRampVel(rank: $0, low: low, high: high, ramp: ramp) }
+        return AnyView(HStack(alignment: .top, spacing: 0) {
             Text("VEL").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            Text("\(low)%").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).frame(width: lowW, alignment: .trailing)
-                .accessibilityElement(children: .ignore).accessibilityLabel("Lowest velocity").accessibilityValue("\(low) percent")
-                .accessibilityAdjustableAction { d in let v = max(0, min(high, low + (d == .increment ? 5 : -5))); edit(idx) { $0.drumLow = UInt8(v) } }
+            VStack(spacing: 0) {   // left: bars + slider
+                ZStack(alignment: .topLeading) {
+                    ForEach(0..<8, id: \.self) { r in drumVelBar(vel: velOf(r + 1), rank: r + 1, laneCol: laneCol, w: colW).offset(x: xs[r]) }
+                }
+                .frame(width: leftW, height: 66, alignment: .topLeading)
+                .accessibilityElement(children: .ignore).accessibilityLabel("Velocity ramp").accessibilityValue("rank 1, \(velOf(1)) percent, to rank 8, \(velOf(8)) percent")
+                HStack(spacing: sgap) {   // the slider row, 30 tall
+                    Text("\(low)%").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).frame(width: lowW, alignment: .trailing)
+                        .accessibilityElement(children: .ignore).accessibilityLabel("Lowest velocity").accessibilityValue("\(low) percent")
+                        .accessibilityAdjustableAction { d in let v = max(0, min(high, low + (d == .increment ? 5 : -5))); edit(idx) { $0.drumLow = UInt8(v) } }
+                    EuclideousDrumVelSlider(low: low, high: high, laneColor: laneCol, width: sliderW, height: 30,
+                                            onChange: { nl, nh, first in editStep(idx, first) { $0.drumLow = UInt8(max(0, min(100, nl))); $0.drumHigh = UInt8(max(0, min(100, nh))) } },
+                                            dragging: $drumVelDragging)
+                    Text("\(high)%").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).frame(width: highW, alignment: .leading)
+                        .accessibilityElement(children: .ignore).accessibilityLabel("Highest velocity").accessibilityValue("\(high) percent")
+                        .accessibilityAdjustableAction { d in let v = max(low, min(100, high + (d == .increment ? 5 : -5))); edit(idx) { $0.drumHigh = UInt8(v) } }
+                }.frame(width: leftW, height: 30)
+            }.frame(width: leftW, height: height)
             Spacer(minLength: gap)
-            EuclideousDrumVelSlider(low: low, high: high, laneColor: lane100(accent), width: sliderW, height: height,
-                                    onChange: { newLow, newHigh, first in editStep(idx, first) { $0.drumLow = UInt8(max(0, min(100, newLow))); $0.drumHigh = UInt8(max(0, min(100, newHigh))) } },
-                                    dragging: $drumVelDragging)
-            Spacer(minLength: gap)
-            Text("\(high)%").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).frame(width: highW, alignment: .leading)
-                .accessibilityElement(children: .ignore).accessibilityLabel("Highest velocity").accessibilityValue("\(high) percent")
-                .accessibilityAdjustableAction { d in let v = max(low, min(100, high + (d == .increment ? 5 : -5))); edit(idx) { $0.drumHigh = UInt8(v) } }
+            VStack(spacing: 6) {   // right 40: headphone + vertical ramp
+                drumHeadphoneButton(idx)
+                drumRampSwitchVertical(idx, line, laneCol: laneCol)
+            }.frame(width: rightW, height: height)
         }
-        .frame(width: fullWidth, height: height))
+        .frame(width: fullWidth, height: height, alignment: .top))
+    }
+    /// §3.4 one velocity bar: the velocity number, a bar `42 × vel/100` tall (≥ 2), the rank number; bottom-aligned.
+    private func drumVelBar(vel: Int, rank: Int, laneCol: Color, w: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Text("\(vel)").font(.system(size: 8.5, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+            Spacer(minLength: 2)
+            RoundedRectangle(cornerRadius: 3).fill(laneCol.opacity(0.2 + 0.6 * Double(vel) / 100)).frame(height: max(2, 42 * CGFloat(vel) / 100))
+            Text("\(rank)").font(.system(size: 7, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).padding(.top, 2)
+        }.frame(width: w, height: 66, alignment: .bottom)
+    }
+    /// §3.4 / §4 the headphone — the rank preview button. INTERIM (slice 4): a momentary pool audition; the §4 8-step preview lands in the next slice.
+    private func drumHeadphoneButton(_ idx: Int) -> some View {
+        Image(systemName: "headphones").font(.system(size: 15, weight: .semibold)).foregroundColor(Color(hex: 0xC9CDD4))
+            .frame(width: 40, height: 34)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x202228)))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x33363E), lineWidth: 1))
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { _ in if testLane != idx { onTestDown(idx) } }.onEnded { _ in onTestUp(idx) })
+            .accessibilityElement(children: .ignore).accessibilityLabel("Preview ranks").accessibilityAddTraits(.isButton)
+    }
+    /// §3.4 the vertical UP/DOWN ramp switch (UP above DOWN).
+    private func drumRampSwitchVertical(_ idx: Int, _ line: EuclidLine, laneCol: Color) -> some View {
+        let ramp = line.drumRampResolved
+        func seg(_ r: EuclideousDrumRamp) -> some View {
+            let sel = ramp == r
+            let ink = Color(hex: sel ? 0xF2F4F7 : 0x8A909A)
+            return VStack(spacing: 2) {
+                Image(systemName: r == .up ? "arrow.up" : "arrow.down").font(.system(size: 10, weight: .heavy)).foregroundColor(ink)
+                EuclideousRampBars(up: r == .up).frame(width: 18, height: 12).foregroundColor(ink)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 7).fill(sel ? Color(hex: 0x2A2D34) : .clear))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(sel ? Color(hex: 0x3A3E47) : .clear, lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { if !sel { edit(idx) { $0.drumRamp = r } } }
+            .accessibilityElement(children: .ignore).accessibilityLabel(r == .up ? "Ramp up" : "Ramp down").accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+        }
+        return VStack(spacing: 3) { seg(.up); seg(.down) }.padding(3).frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: FourfoldStyle.card)))
     }
     /// DRUM MODE §4.1: open the drum picker (the kit editor in its DRUM variant) on `lane`.
     private func openDrumPicker(lane: Int) {

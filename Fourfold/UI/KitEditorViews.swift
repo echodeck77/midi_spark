@@ -347,6 +347,17 @@ struct EuclideousChevronDown: Shape {
     }
 }
 
+/// DRUM CARD V2 §3.3 — a left (‹) or right (›) chevron, open path, stroked by the caller (the selector's steppers).
+struct DrumSelectorChevron: Shape {
+    var left: Bool
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        if left { p.move(to: CGPoint(x: r.maxX, y: r.minY)); p.addLine(to: CGPoint(x: r.minX, y: r.midY)); p.addLine(to: CGPoint(x: r.maxX, y: r.maxY)) }
+        else { p.move(to: CGPoint(x: r.minX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY)); p.addLine(to: CGPoint(x: r.minX, y: r.maxY)) }
+        return p
+    }
+}
+
 /// §3.4 the ramp icon — four bars (4 wide, 2 apart, radius 1) rising (UP: 5, 8, 12, 16) or falling (DOWN: the reverse), bottom-aligned in a 26 × 18 box. A Shape, so the caller's `.foregroundColor` fills it.
 struct EuclideousRampBars: Shape {
     var up: Bool
