@@ -5622,6 +5622,7 @@ enum EuclideousPageFloor: Equatable, Hashable {
     case restartEditor               // RESETS TAB (2026-11-13) §1.7/§1.8: the restart controls on the lane card don't fit — row 1 needs TW ≥ 262 (FREE pill, three chips, four source squares), or the body is too short for even §1.7's shortest case — drawn at the formula's values, nothing shrinks (was the overlay editor's own fit before the controls moved onto the card)
     case mixV2Slider, mixV2Row, mixV2Band   // MIX v2 (2026-11-05, §1.6): a VEL / GATE tile under 72 pt wide · a part row under 44 tall · a lane band under 140 tall — drawn at the formula's values, never shrunk
     case mixRowsRoll, mixRowsRow, mixRowsBand   // MIX ROWS (2026-11-03): a part row's roll under 96 pt wide · a part row under 40 tall · a lane band under 120 tall (the panel is drawn at the formula's values)
+    case compactLaneChip                        // COMPACT LAYOUT (2026-11-26) §2.3: the lane chip's hit area (leading edge → PLAY RIFF) is INHERENTLY under 44 pt wide — reported as a FLOOR, not a failure, on every Compact layout
 }
 
 /// Which floors a box of this size falls under. Every flagged item is still drawn at the formula's values.
@@ -5738,6 +5739,11 @@ enum EuclideousScaleToFit {
     /// are the only sizes `euclideousPageLayout` reports with no floors).
     static let landscapeRef = CGSize(width: 1190, height: 726)
     static let portraitRef = CGSize(width: 814, height: 1102)
+    /// COMPACT LAYOUT (2026-11-26) §1.2/§1.3: Compact's own design minimum — below it (in either dimension) the Compact
+    /// page lays out AT this size and scales down uniformly, exactly as the full page does below `landscapeRef`. It is the
+    /// smallest size at which `euclideousCompactFloors` flags nothing (bar the inherent `.compactLaneChip`), found by the
+    /// sweep in `CompactLayoutTests` (which pins it clean and pins the size just below it flagging a floor). ≤ 900×600 (§1.2).
+    static let compactRef = CGSize(width: 730, height: 594)
 }
 struct EuclideousScaleFit: Equatable {
     var renderSize: CGSize   // the size the page lays out at (the real size, or — when smaller than the reference — the reference)
@@ -5745,9 +5751,11 @@ struct EuclideousScaleFit: Equatable {
     var origin: CGPoint      // where to place the scaled page (centred when scaled; .zero otherwise)
     var scaled: Bool
 }
-func euclideousScaleToFit(_ size: CGSize) -> EuclideousScaleFit {
+func euclideousScaleToFit(_ size: CGSize, ref overrideRef: CGSize? = nil) -> EuclideousScaleFit {
     let landscape = size.width > size.height
-    let ref = landscape ? EuclideousScaleToFit.landscapeRef : EuclideousScaleToFit.portraitRef
+    // COMPACT LAYOUT §1.3: a caller may pass Compact's own reference (`EuclideousScaleToFit.compactRef`); the no-arg form is
+    // byte-identical to before (the orientation reference).
+    let ref = overrideRef ?? (landscape ? EuclideousScaleToFit.landscapeRef : EuclideousScaleToFit.portraitRef)
     // No-op unless the view is strictly smaller than the reference in some dimension (and non-degenerate).
     guard size.width > 0, size.height > 0, size.width < ref.width || size.height < ref.height else {
         return EuclideousScaleFit(renderSize: size, scale: 1, origin: .zero, scaled: false)
@@ -5755,6 +5763,129 @@ func euclideousScaleToFit(_ size: CGSize) -> EuclideousScaleFit {
     let scale = max(0.05, min(1, min(size.width / ref.width, size.height / ref.height)))   // fit the whole reference in; never up
     let origin = CGPoint(x: (size.width - ref.width * scale) / 2, y: (size.height - ref.height * scale) / 2)
     return EuclideousScaleFit(renderSize: ref, scale: scale, origin: origin, scaled: true)
+}
+
+// MARK: - COMPACT LAYOUT (ferry 2026-11-26): the size class + the Compact page layout
+//
+// §1.1: landscape windows below the full layout's design minimum (= the landscape reference, `landscapeRef`) switch to
+// COMPACT; portrait is never Compact. §1.3: below Compact's OWN minimum (`compactRef`) the Compact page scales to fit via
+// the SAME `euclideousScaleToFit` (now taking a `ref:`). §1.5: a dev build may force Compact at any landscape size.
+// These are the PURE functions the page (slice 4) lays itself out from; nothing here draws.
+
+enum EuclideousSizeClass: Equatable { case full, compact }
+
+/// §1.1 / §1.5: the page's size class. Landscape only switches — FULL at or above `landscapeRef` in BOTH dimensions, else
+/// COMPACT. Portrait is always FULL (Compact is out of scope in portrait). `devForceCompact` (§1.5 ALWAYS) forces COMPACT at
+/// any landscape size — below `compactRef` the scale-to-fit (§1.3) handles it, so it stays COMPACT and just scales.
+func euclideousSizeClass(size: CGSize, devForceCompact: Bool = false) -> EuclideousSizeClass {
+    guard size.width > size.height else { return .full }                     // §1.1 portrait never Compact
+    if devForceCompact { return .compact }                                   // §1.5 ALWAYS
+    let ref = EuclideousScaleToFit.landscapeRef
+    return (size.width >= ref.width && size.height >= ref.height) ? .full : .compact
+}
+
+/// §2 / §3: every frame the Compact page lays out from (page coordinates, origin at the view's top-left, laid out at the
+/// render size — the real size at/above `compactRef`, or `compactRef` when scaled). The header is drawn exactly as the full
+/// page (`EuclideousPageMetrics.top` governs the content top), so "the header is unchanged" (§2).
+enum EuclideousCompactMetrics {
+    static let pad: CGFloat = 8                   // §2.1 page padding (tighter than the full page's 16)
+    static let gap: CGFloat = 8                   // §2.1 sp8 between columns and stacked items
+    static let leftFrac: CGFloat = 0.54           // §2.1 left column = 54 % of the body width…
+    static let leftMin: CGFloat = 476             // §2.1 …never under 476
+    static let stripH = EuclideousLaneStripMetrics.height   // 28 (SOURCE — the spec's 32 for the tab rows loses to this)
+    static let panelPad: CGFloat = 5              // §2.3 lane-strips panel padding
+    static let laneStripH: CGFloat = 50           // §2.3 each lane strip
+    static let laneStripGap: CGFloat = 3          // §2.3 between strips
+    static let laneStripRadius: CGFloat = 10      // §2.3
+    static let panelRadius: CGFloat = 12          // §2.3 / §2.4
+    static let chipW: CGFloat = 22                // §2.3 lane chip
+    static let playW: CGFloat = 44                // §2.3 PLAY RIFF / PLAY STACK
+    static let stripPadV: CGFloat = 2             // §2.3 top/bottom inside a strip
+    static let stripPadH: CGFloat = 3             // §2.3 leading/trailing inside a strip
+    static let stripGapInner: CGFloat = 4         // §2.3 sp4 between a strip's contents
+    static let cardInset: CGFloat = 10            // §2.4 the selected card's inset (as the full card)
+    static let rightTabH: CGFloat = 28            // §3.2 the right 6-tab row (SOURCE strip height, not the spec's 32)
+    static let stepsFloor: CGFloat = 96           // §2.3 the strip's steps area must stay usable (reuses the segment floor)
+    static let rightCellFloor: CGFloat = 18       // §3.3 the right panel's riff cell must not fall under this
+    /// The four-lane-strips panel's fixed height: 4 × 50 + 3 × 3 + 2 × 5 = 219.
+    static var stripsPanelH: CGFloat { 4 * laneStripH + 3 * laneStripGap + 2 * panelPad }
+}
+
+struct EuclideousCompactLayout: Equatable {
+    var leftW: CGFloat, rightW: CGFloat
+    var strip: CGRect            // the shared tab strip (left column)
+    var allRowRect: CGRect       // the RESETS ALL row (.zero unless allRow > 0)
+    var stripsPanel: CGRect      // the four-lane-strips panel
+    var laneStrips: [CGRect]     // lanes 1–4, top → bottom
+    var card: CGRect             // the selected lane's card
+    var rightTab: CGRect         // the right 6-tab row
+    var rightPanel: CGRect       // the right panel (one view at a time)
+    var floors: [EuclideousPageFloor]
+}
+
+/// §2 / §3: the Compact page layout. `allRow` is the RESETS ALL row's height (46 while RESETS is up, else 0) — when non-zero
+/// it reserves a row below the tab strip and the card shrinks (the strips panel is fixed). `bottomInset` is the safe-area
+/// inset the page honours at the foot.
+func euclideousCompactLayout(size: CGSize, headerKind: EuclideousHeaderLayout.Kind, bottomInset: CGFloat = 0, allRow: CGFloat = 0) -> EuclideousCompactLayout {
+    typealias M = EuclideousCompactMetrics
+    let bodyTop = EuclideousPageMetrics.top(headerKind)                      // header as built (§2.1/§2 "the header is unchanged")
+    let bodyBottom = max(bodyTop + 1, size.height - max(M.pad, bottomInset))
+    let bodyLeft = M.pad
+    let bodyW = max(1, size.width - M.pad * 2)
+    let leftW = max(M.leftMin, (M.leftFrac * bodyW).rounded())               // §2.1
+    let rightX = bodyLeft + leftW + M.gap
+    let rightW = max(1, bodyW - leftW - M.gap)
+    // left column, top → bottom, sp8 between
+    var y = bodyTop
+    let strip = CGRect(x: bodyLeft, y: y, width: leftW, height: M.stripH); y = strip.maxY + M.gap
+    var allRowRect = CGRect.zero
+    if allRow > 0 { allRowRect = CGRect(x: bodyLeft, y: y, width: leftW, height: allRow); y = allRowRect.maxY + M.gap }
+    let stripsPanel = CGRect(x: bodyLeft, y: y, width: leftW, height: M.stripsPanelH); y = stripsPanel.maxY + M.gap
+    let card = CGRect(x: bodyLeft, y: y, width: leftW, height: max(1, bodyBottom - y))
+    var laneStrips: [CGRect] = []
+    let sx = stripsPanel.minX + M.panelPad, sw = max(1, leftW - M.panelPad * 2)
+    for i in 0..<4 {
+        laneStrips.append(CGRect(x: sx, y: stripsPanel.minY + M.panelPad + CGFloat(i) * (M.laneStripH + M.laneStripGap), width: sw, height: M.laneStripH))
+    }
+    // right column
+    let rightTab = CGRect(x: rightX, y: bodyTop, width: rightW, height: M.rightTabH)
+    let rightPanel = CGRect(x: rightX, y: rightTab.maxY + M.gap, width: rightW, height: max(1, bodyBottom - (rightTab.maxY + M.gap)))
+    let floors = euclideousCompactFloors(card: card, rightPanel: rightPanel.size, laneStrip: laneStrips.first ?? .zero)
+    return EuclideousCompactLayout(leftW: leftW, rightW: rightW, strip: strip, allRowRect: allRowRect, stripsPanel: stripsPanel,
+                                   laneStrips: laneStrips, card: card, rightTab: rightTab, rightPanel: rightPanel, floors: floors)
+}
+
+/// §2.3: a lane strip's sub-rects (strip-local). Chip (22) | PLAY RIFF (44) | steps (the rest) | PLAY STACK (44), sp4 apart,
+/// 2 pt top/bottom + 3 pt lead/trail inside. `chipHit` is the chip's touch target — the strip's leading edge → PLAY RIFF,
+/// full height (§2.3: under the 44 floor, reported as `.compactLaneChip`, not a failure).
+struct EuclideousCompactStripParts: Equatable { var chip, playRiff, steps, playStack, chipHit: CGRect }
+func euclideousCompactStripParts(stripRect r: CGRect) -> EuclideousCompactStripParts {
+    typealias M = EuclideousCompactMetrics
+    let iy = r.minY + M.stripPadV, ih = max(1, r.height - M.stripPadV * 2)
+    let chip = CGRect(x: r.minX + M.stripPadH, y: iy, width: M.chipW, height: ih)
+    let playRiff = CGRect(x: chip.maxX + M.stripGapInner, y: iy, width: M.playW, height: ih)
+    let playStack = CGRect(x: r.maxX - M.stripPadH - M.playW, y: iy, width: M.playW, height: ih)
+    let stepsX = playRiff.maxX + M.stripGapInner
+    let steps = CGRect(x: stepsX, y: iy, width: max(1, playStack.minX - M.stripGapInner - stepsX), height: ih)
+    let chipHit = CGRect(x: r.minX, y: r.minY, width: max(1, playRiff.minX - r.minX), height: r.height)
+    return EuclideousCompactStripParts(chip: chip, playRiff: playRiff, steps: steps, playStack: playStack, chipHit: chipHit)
+}
+
+/// §1.2: the Compact floors — a flag, never a clamp (the panels are drawn at the formula's values and listed). `.rhythmZones`
+/// when the selected card's content (no comet row in Compact) falls under the tightest tab's floor (192, EUCLID); `.riffRows`
+/// when the right panel's riff grid rows/cells are too small; `.laneStrip` when a strip's steps area is under 96; and the
+/// inherent `.compactLaneChip` on every layout (the chip hit area is always under 44 wide — §2.3).
+func euclideousCompactFloors(card: CGRect, rightPanel: CGSize, laneStrip: CGRect) -> [EuclideousPageFloor] {
+    typealias M = EuclideousCompactMetrics
+    var out: [EuclideousPageFloor] = []
+    let cardContentH = card.height - EuclideousLaneCardMetrics.inset * 2     // §2.5: no comet row header in the Compact card
+    if cardContentH < EuclideousLaneCardMetrics.rhythmZonesFloor { out.append(.rhythmZones) }
+    let riff = euclideousRiffPanelLayout(box: rightPanel)
+    if riff.belowFloor || riff.cellW < M.rightCellFloor { out.append(.riffRows) }
+    let steps = euclideousCompactStripParts(stripRect: CGRect(origin: .zero, size: laneStrip.size)).steps
+    if steps.width < M.stepsFloor { out.append(.laneStrip) }
+    out.append(.compactLaneChip)                                            // §2.3: inherent, always reported
+    return out
 }
 
 // MARK: - MIX TAB (ferry 2026-10-18): gate, velocity and octave for every layer

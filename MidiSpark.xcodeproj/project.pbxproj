@@ -285,6 +285,7 @@
 		755AC5470022DBA5733B09AD /* ChordCanonSourcesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4730170C71768BFA49DCB6C /* ChordCanonSourcesTests.swift */; };
 		75EA204A11A3EBD66D3506F1 /* ResetsTileV3.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EAEB14B47BC1D8B4B2D73E /* ResetsTileV3.swift */; };
 		76200A32A504EA152B5EE00C /* FXTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17864B5ACB5F8D44C78497C4 /* FXTabTests.swift */; };
+		763745A3B18F7087BCC9A6D6 /* CompactLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342CEDA8E69C9877BEDE0F1B /* CompactLayoutTests.swift */; };
 		76D1A6880AAD5A2FAB978C4C /* FourfoldTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */; };
 		773F692F8B836B1C245ED1F8 /* FourfoldMIDI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4156E25D4881F600935CB6A5 /* FourfoldMIDI.swift */; };
 		77A6290787D99EF6136EBF84 /* EmitterRatchetMutationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E88E3033C6B3EF5CB7DD6F5 /* EmitterRatchetMutationTests.swift */; };
@@ -735,6 +736,7 @@
 		325E09E13B4C1DE6C0EAA04E /* EmitterRatchetV2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterRatchetV2Tests.swift; sourceTree = "<group>"; };
 		32B0370916996785351E85CE /* FourfoldAU.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FourfoldAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		33ADAC80653CA2A15DC3535E /* RestartTilePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartTilePainter.swift; sourceTree = "<group>"; };
+		342CEDA8E69C9877BEDE0F1B /* CompactLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactLayoutTests.swift; sourceTree = "<group>"; };
 		344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkApp.swift; sourceTree = "<group>"; };
 		354DBFBF5F37251A2C53939E /* NotesTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTabTests.swift; sourceTree = "<group>"; };
 		35E864C306383ECEE13CDAAD /* BuildReel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildReel.swift; sourceTree = "<group>"; };
@@ -1220,6 +1222,7 @@
 				C4C65CD0797F00553F393868 /* ChordCanonTests.swift */,
 				00A0AAF1BEFC7A0801E48D8E /* ChordsGridTests.swift */,
 				6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */,
+				342CEDA8E69C9877BEDE0F1B /* CompactLayoutTests.swift */,
 				9240C6CA393EE4F4B6FD09AB /* DerivationsTests.swift */,
 				A11AE3A0BF3AC4B072700339 /* DirectionDisplayTests.swift */,
 				DC2A91FB90BA693FE1DE6ECA /* DrumModeTests.swift */,
@@ -2148,6 +2151,7 @@
 				960ACD49BD8FBEB02D6E8C4F /* ChordCanonTests.swift in Sources */,
 				50D3FB0F2FD2D19D2F42B5F8 /* ChordsGridTests.swift in Sources */,
 				380EF70566461B22D7C2CF72 /* ClarityPassTests.swift in Sources */,
+				763745A3B18F7087BCC9A6D6 /* CompactLayoutTests.swift in Sources */,
 				CE7A58D6EDC60C74AD08C3BC /* Derivations.swift in Sources */,
 				7972392F67F1F17CBABBE729 /* DerivationsTests.swift in Sources */,
 				48945756C07AD7AD3107E51D /* Diag.swift in Sources */,
