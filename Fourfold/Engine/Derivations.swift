@@ -13438,6 +13438,13 @@ private extension Array { subscript(safe i: Int) -> Element? { indices.contains(
 /// §1.2 the lane's resolved drum note: the stored value, else the per-lane default (nil stays nil in the model so nothing saved changes).
 func euclideousDrumNote(_ line: EuclidLine, lane: Int) -> UInt8 { line.drumNote.map { min(127, $0) } ?? euclideousDrumNoteDefault(lane: lane) }
 
+/// DRUM CARD V2 §2.2 — the note a vertical scrub lands on: `start + round((startY − y) / 12)` (12 pt per note, up raises),
+/// clamped 0…127. `startNote` is the note at touch-down, `startY` the touch-down y, `y` the current y (screen coords).
+func euclideousDrumScrubNote(startNote: Int, startY: CGFloat, y: CGFloat) -> Int {
+    let steps = Int(((startY - y) / 12).rounded())
+    return max(0, min(127, startNote + steps))
+}
+
 /// §2.2 the velocity (0…100 %) at rank `r` (1…8) for a ramp from `low` to `high`. UP: low at rank 1 → high at rank 8; DOWN: the mirror (high at rank 1 → low at rank 8). Rounded to the nearest integer. `low`/`high` are clamped 0…100 and `high` is read ≥ `low`.
 func euclideousDrumRampVel(rank r: Int, low: Int, high: Int, ramp: EuclideousDrumRamp) -> Int {
     let lo = max(0, min(100, low)), hi = max(lo, min(100, high))
