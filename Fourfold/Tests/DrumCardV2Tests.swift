@@ -32,6 +32,29 @@ final class DrumCardV2Tests: XCTestCase {
         XCTAssertEqual(euclideousDrumScrubNote(startNote: 125, startY: 100, y: -400), 127)   // way up
     }
 
+    // §7.9 — the DRUM row frames fit the row: selector 190×46 inside, CONVERT fills the rest, chevrons 40 wide, all inside.
+    func testDrumRowLayout() {
+        for rowW: CGFloat in [313, 360, 420] {   // label 50 + content; a few card widths
+            let f = euclideousDrumRowFrames(rowWidth: rowW, rowHeight: 54, labelW: 50)
+            XCTAssertEqual(f.selector.width, 190); XCTAssertEqual(f.selector.height, 46)
+            XCTAssertEqual(f.decButton.width, 40); XCTAssertEqual(f.incButton.width, 40)
+            XCTAssertEqual(f.field.minX, f.decButton.maxX, accuracy: 0.01)
+            XCTAssertEqual(f.incButton.minX, f.field.maxX, accuracy: 0.01)
+            XCTAssertGreaterThan(f.convert.minX, f.selector.maxX)   // 8 clear after the selector
+            XCTAssertLessThanOrEqual(f.convert.maxX, rowW + 0.01)   // inside the row
+            XCTAssertGreaterThanOrEqual(f.selector.minY, 0); XCTAssertLessThanOrEqual(f.selector.maxY, 54)
+        }
+    }
+
+    // §7.9 — the 8 VEL bar columns fit the width, 4 apart, equal.
+    func testDrumVelColumns() {
+        let (colW, xs) = euclideousDrumVelColumns(width: 300)
+        XCTAssertEqual(xs.count, 8)
+        XCTAssertEqual(xs[0], 0, accuracy: 0.01)
+        XCTAssertEqual(xs[1] - xs[0], colW + 4, accuracy: 0.01)
+        XCTAssertLessThanOrEqual(xs[7] + colW, 300 + 0.01)   // the last bar ends inside the width
+    }
+
     // §7.8 — the VEL bars (euclideousDrumRampVel): 40–100 UP, DOWN, and equal low/high.
     func testRampBars() {
         let up = (1...8).map { euclideousDrumRampVel(rank: $0, low: 40, high: 100, ramp: .up) }

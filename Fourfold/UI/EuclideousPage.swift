@@ -8214,9 +8214,26 @@ struct EuclideousPage: View {
     /// MIDI/DELAY-CHORD 44 / 30 / 30 / 44, sp14 → 8 → a 30 pt floor) with the 30 pt APPLY TO ALL button + one gap reserved out of the area. When even the floors do not fit (a very short window) the body scrolls: no row is squeezed under 30 pt.
     private func poolTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         // INPUTS MODE §3.2: the MODE row (first, under the Euclid strip) + the per-mode body. The MODE row (30) + the APPLY button (30) + their two gaps are reserved out of the area; the remaining four row heights come from the existing layout — MELODIC uses all four (POOL/SOURCES/MIDI/DELAY), DRUM three (POOL/DRUM/VEL), KIT two (POOL/KIT).
-        let buttonH: CGFloat = 30, modeH: CGFloat = 30
-        let layout = euclideousInputsTabLayout(contentAreaH: max(0, contentAreaH - buttonH - modeH - 28))
+        let buttonH: CGFloat = 30
         let mode = line.laneModeResolved
+        // DRUM CARD V2 §3.1 (Paul 2026-11-26): DRUM has its OWN fixed rows — MODE 36, DRUM 54, VEL 96, APPLY built; NO POOL
+        // (every rank is the same note, §3.3/§5). Slack sits above APPLY (the Spacer). Scroll fallback if a very short card.
+        if mode == .drum {
+            let modeH: CGFloat = 36, drumH: CGFloat = 54, velH: CGFloat = 96, gap: CGFloat = 8
+            let drumRows = VStack(spacing: gap) {
+                modeRow(idx, line, accent, fullWidth: fullWidth, height: modeH)
+                drumRow(idx, line, accent, fullWidth: fullWidth, height: drumH)
+                drumVelRow(idx, line, accent, fullWidth: fullWidth, height: velH)
+                Spacer(minLength: 0)
+                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
+            }
+            let needed = modeH + drumH + velH + buttonH + gap * 4
+            if contentAreaH >= needed { return AnyView(drumRows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
+            return AnyView(ScrollView(.vertical, showsIndicators: false) { drumRows.frame(width: fullWidth, alignment: .top) }
+                .frame(width: fullWidth, height: contentAreaH, alignment: .top))
+        }
+        let modeH: CGFloat = 30
+        let layout = euclideousInputsTabLayout(contentAreaH: max(0, contentAreaH - buttonH - modeH - 28))
         let rows = VStack(spacing: layout.gap) {
             modeRow(idx, line, accent, fullWidth: fullWidth, height: modeH)
             poolNowRow(idx, accent, fullWidth: fullWidth, height: layout.nowH)
@@ -8225,11 +8242,9 @@ struct EuclideousPage: View {
                 poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
                 inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
                 listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH)
-            case .drum:
-                drumRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
-                drumVelRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
             case .kit:
                 kitRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
+            case .drum: EmptyView()   // handled above
             }
             Spacer(minLength: 0)   // absorbs the slack between the mode's rows and the button
             inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)   // PINNED to the foot (Paul 2026-11-25): the spacer above it keeps it at the same y in every mode (MELODIC/DRUM/KIT), evenly aligned at the bottom of the box

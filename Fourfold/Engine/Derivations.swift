@@ -13445,6 +13445,37 @@ func euclideousDrumScrubNote(startNote: Int, startY: CGFloat, y: CGFloat) -> Int
     return max(0, min(127, startNote + steps))
 }
 
+/// DRUM CARD V2 §3.3 — the DRUM row's frames (in row-local coords, origin at the row's top-left). The label column, then the
+/// 190×46 selector (‹ 40 | field | › 40, 1 pt dividers at 26 tall), 8 clear, then CONVERT DRUM TO KIT filling the rest at 46 tall.
+struct EuclideousDrumRowFrames: Equatable {
+    var label: CGRect, selector: CGRect, decButton: CGRect, field: CGRect, incButton: CGRect
+    var leftDivider: CGRect, rightDivider: CGRect, convert: CGRect
+}
+func euclideousDrumRowFrames(rowWidth: CGFloat, rowHeight: CGFloat, labelW: CGFloat) -> EuclideousDrumRowFrames {
+    let selW: CGFloat = 190, selH: CGFloat = 46, chevW: CGFloat = 40, gap: CGFloat = 8
+    let y = (rowHeight - selH) / 2
+    let selX = labelW
+    let dec = CGRect(x: selX, y: y, width: chevW, height: selH)
+    let inc = CGRect(x: selX + selW - chevW, y: y, width: chevW, height: selH)
+    let field = CGRect(x: dec.maxX, y: y, width: max(1, selW - chevW * 2), height: selH)
+    let divY = y + (selH - 26) / 2
+    let convX = selX + selW + gap
+    return EuclideousDrumRowFrames(
+        label: CGRect(x: 0, y: 0, width: labelW, height: rowHeight),
+        selector: CGRect(x: selX, y: y, width: selW, height: selH),
+        decButton: dec, field: field, incButton: inc,
+        leftDivider: CGRect(x: dec.maxX - 0.5, y: divY, width: 1, height: 26),
+        rightDivider: CGRect(x: inc.minX - 0.5, y: divY, width: 1, height: 26),
+        convert: CGRect(x: convX, y: y, width: max(1, rowWidth - convX), height: selH))
+}
+
+/// DRUM CARD V2 §3.4 — the 8 VEL-bar columns' x/width across `width` (4 pt apart, rank 1…8 left→right).
+func euclideousDrumVelColumns(width: CGFloat) -> (colW: CGFloat, xs: [CGFloat]) {
+    let spacing: CGFloat = 4
+    let colW = max(1, (width - spacing * 7) / 8)
+    return (colW, (0..<8).map { CGFloat($0) * (colW + spacing) })
+}
+
 /// §2.2 the velocity (0…100 %) at rank `r` (1…8) for a ramp from `low` to `high`. UP: low at rank 1 → high at rank 8; DOWN: the mirror (high at rank 1 → low at rank 8). Rounded to the nearest integer. `low`/`high` are clamped 0…100 and `high` is read ≥ `low`.
 func euclideousDrumRampVel(rank r: Int, low: Int, high: Int, ramp: EuclideousDrumRamp) -> Int {
     let lo = max(0, min(100, low)), hi = max(lo, min(100, high))
