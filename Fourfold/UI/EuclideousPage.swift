@@ -8267,10 +8267,9 @@ struct EuclideousPage: View {
                 modeRow(idx, line, accent, fullWidth: fullWidth, height: modeH)
                 drumRow(idx, line, accent, fullWidth: fullWidth, height: drumH)
                 drumVelRow(idx, line, accent, fullWidth: fullWidth, height: velH)
-                Spacer(minLength: 0)
-                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
+                Spacer(minLength: 0)   // APPLY TO ALL removed from DRUM (Paul 2026-11-27)
             }
-            let needed = modeH + drumH + velH + buttonH + gap * 4
+            let needed = modeH + drumH + velH + gap * 3
             if contentAreaH >= needed { return AnyView(drumRows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
             return AnyView(ScrollView(.vertical, showsIndicators: false) { drumRows.frame(width: fullWidth, alignment: .top) }
                 .frame(width: fullWidth, height: contentAreaH, alignment: .top))
@@ -8285,10 +8284,9 @@ struct EuclideousPage: View {
                 kitRanksRow(idx, line, accent, fullWidth: fullWidth, height: ranksH)
                 kitNoteRow(idx, line, accent, fullWidth: fullWidth, height: noteH)
                 kitVelRow(idx, line, accent, fullWidth: fullWidth, height: velH)
-                Spacer(minLength: 0)
-                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
+                Spacer(minLength: 0)   // APPLY TO ALL removed from KIT (Paul 2026-11-27)
             }
-            let needed = modeH + kitH + ranksH + noteH + velH + buttonH + gap * 6
+            let needed = modeH + kitH + ranksH + noteH + velH + gap * 5
             if contentAreaH >= needed { return AnyView(kitRows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
             return AnyView(ScrollView(.vertical, showsIndicators: false) { kitRows.frame(width: fullWidth, alignment: .top) }
                 .frame(width: fullWidth, height: contentAreaH, alignment: .top))
