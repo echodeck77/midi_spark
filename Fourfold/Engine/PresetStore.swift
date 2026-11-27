@@ -31,6 +31,7 @@ enum PresetStore {
         doc.normalizeChordSetsAtLoad()           // TWO CHORD GRIDS: an old preset's four progressions become two (the playing one is grid 1)
         doc.normalizeSoloAtLoad()                // ONE SOLO: an old preset's lane solo becomes its two part bits
         doc.normalizeSourcesAtLoad()             // INPUTS + HARMONY §1.3: each lane's SOURCES chips take the old global switches (chip AND switch), the switches read true
+        doc.normalizeKitFollowsAtLoad()          // KIT CARD V2 §1.3: a lane whose stored kit differs from GM stops following + shows custom
         doc.normalizeRiffSourcesAtLoad()         // RIFF SOURCE ferry (2026-11-22, §8.2): a self/loop riff-source becomes OWN
         doc.normalizeEuclidFromAtLoad()          // EUCLID FROM ferry (2026-11-22, §3.2): a self/loop FROM becomes none
         doc.normalizeGridChanceAtLoad()          // GRID CHANCE (2026-11-22, §1.2): a preset that breaks "one axis per grid" keeps the rank array, resets the other

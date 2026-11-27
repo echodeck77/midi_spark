@@ -4068,6 +4068,7 @@ struct PluginState: Codable, Equatable {
     var euclideousLinesResolved: [EuclidLine] {
         let L = euclideousLines
         let isGenuinelyFresh = (L == nil)
+        let defKitNotes = defaultKitNotesResolved, defKitVel = defaultKitVelResolved   // KIT CARD V2 §2.1: the session default (nil ⇒ GM)
         return (0..<4).map { i in
             var line = i < (L ?? []).count ? L![i] : Self.euclideousDefaultLine(i)
             // LEGATO REMOVED FROM A LANE'S GATE (2026-10-19): a stored 100% (an older session, or one set before this) loads as 99% — the UI and the engine (which are fed from
@@ -4077,6 +4078,10 @@ struct PluginState: Codable, Equatable {
             if line.isUntouchedLane { line.useRiff = true }
             if let g = line.gate, g > euclideousLaneGateMax { line.gate = euclideousLaneGateMax }
             if let g = line.notesGate, g > euclideousLaneGateMax { line.notesGate = euclideousLaneGateMax }
+            // KIT CARD V2 §2.1: a lane that FOLLOWS the session default plays/shows defaultKit — baked HERE (the one resolve point) so
+            // the snapshot and the UI agree; the explicit flag is kept true so the resolved line still reads as following. nil default ⇒
+            // GM ⇒ byte-identical to a fresh GM lane (golden unchanged by construction).
+            if line.kitFollowsDefaultResolved { line.kitNotes = defKitNotes; line.kitVel = defKitVel; line.kitFollowsDefault = true }
             if line.resetSteps == nil {
                 // §9: "new pages: 1 step" is a MIGRATION rule, not `resetStepsResolved`'s own raw default
                 // (that accessor's nil-default is OFF, deliberately — see its own doc comment) — a
@@ -4198,6 +4203,25 @@ struct PluginState: Codable, Equatable {
     // axis under 100) is enforced by the UI (§4) and repaired at load by `normalizeGridChanceAtLoad` (keep rank, reset the other).
     var euclideousGridChance: EuclideousGridChance? = nil
     var euclideousGridChanceResolved: EuclideousGridChance { euclideousGridChance ?? EuclideousGridChance() }
+    // KIT CARD V2 (ferry 2026-11-26, §1.2): the session DEFAULT KIT — the kit every lane with `kitFollowsDefault` true plays/shows
+    // (§2). nil ⇒ the GM kit @100 (§1.3); `defaultKitIsCustom` false ⇒ label GM, true ⇒ CUSTOM. Additive-Optional, saved. The
+    // engine reads the per-lane EFFECTIVE kit (baked in SnapshotBuilder), never these directly (§1.7).
+    var defaultKitNotes: [UInt8]? = nil
+    var defaultKitVel: [UInt8]? = nil
+    var defaultKitIsCustom: Bool? = nil
+    var defaultKitNotesResolved: [UInt8] { euclideousKitNotesClamped(defaultKitNotes) }   // nil ⇒ GM kit
+    var defaultKitVelResolved: [UInt8] { euclideousKitVelClamped(defaultKitVel) }          // nil ⇒ 100s
+    var defaultKitIsCustomResolved: Bool { defaultKitIsCustom ?? false }
+    /// §1.3 — at load: a lane whose stored kit differs from the GM kit (or has a non-gm template) decodes NOT following + custom;
+    /// else following. Idempotent; sets only `kitFollowsDefault` (and `kitTemplate` "custom" where a non-GM kit has none). No undo.
+    mutating func normalizeKitFollowsAtLoad() {
+        guard euclideousLines != nil else { return }   // nil ⇒ every lane is the default (follows); nothing to normalise
+        for i in euclideousLines!.indices where euclideousLines![i].kitFollowsDefault == nil {
+            let follows = euclideousLines![i].kitFollowsDefaultResolved
+            euclideousLines![i].kitFollowsDefault = follows
+            if !follows, euclideousLines![i].kitTemplate == nil { euclideousLines![i].kitTemplate = "custom" }
+        }
+    }
     // REEL redesign Phase 4 (2026-11-16): KEEPS — named tape ranges the user marked to export, stored WITH the session.
     // Not render data (the engine never reads them), so they are not threaded into the snapshot and never move the golden.
     var reelKeeps: [ReelKeep]? = nil

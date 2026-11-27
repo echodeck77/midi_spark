@@ -13578,6 +13578,36 @@ func euclideousKitNamesResolved(_ stored: [String]?, notes: [UInt8]) -> [String]
         return euclideousGMDrumName(n)
     }
 }
+// MARK: - KIT CARD V2 (ferry 2026-11-26) — the default-kit rule (§2)
+
+/// §2.1 a lane's EFFECTIVE kit: the session default when it follows (`kitFollowsDefault`), else its own stored kit. Both the
+/// card UI and `SnapshotBuilder` read this (the engine then only sees the baked `EuclideousKitSnap`, §1.7).
+func euclideousLaneEffectiveKit(_ line: EuclidLine, defaultNotes: [UInt8], defaultVel: [UInt8]) -> (notes: [UInt8], vel: [UInt8]) {
+    line.kitFollowsDefaultResolved ? (defaultNotes, defaultVel) : (line.kitNotesResolved, line.kitVelResolved)
+}
+
+/// §2.2 push a lane's just-edited kit to the session DEFAULT (any card note/vel edit, drag-copy, CONVERT DRUM TO KIT): the lane
+/// OWNS it (stops following, template "custom"), `defaultKit* := it`, `defaultKitIsCustom := true`. Still-following lanes then read
+/// the new default automatically (no per-lane write), so ONE undo over (this lane + the default fields) reverts every follower
+/// (§1.6). The caller passes the edited `notes`/`vel` (already the rank-edited / dragged / converted kit).
+func euclideousPushCustomKit(lines: inout [EuclidLine], defaultNotes: inout [UInt8]?, defaultVel: inout [UInt8]?, defaultIsCustom: inout Bool?,
+                             lane: Int, notes: [UInt8], vel: [UInt8]) {
+    guard lane >= 0, lane < lines.count else { return }
+    lines[lane].kitNotes = notes
+    lines[lane].kitVel = vel
+    lines[lane].kitFollowsDefault = false
+    lines[lane].kitTemplate = "custom"
+    defaultNotes = notes
+    defaultVel = vel
+    defaultIsCustom = true
+}
+
+/// §3.3 which displayed rank cell the finger's x is over (for drag-to-copy), or nil if outside. `cells` are the cells' frames in
+/// the RANKS row's coordinate space; a PURE decision so the 8-pt tap/drag threshold and the target are testable (§8.4).
+func euclideousKitRankAtX(_ x: CGFloat, cells: [CGRect]) -> Int? {
+    cells.firstIndex { x >= $0.minX && x < $0.maxX }
+}
+
 /// §3.1 the per-rank velocity scale: round(base × kitVel / 100), clamped 1…127; nil when kitVel is 0 (the rank sends no note, §3.2).
 @inline(__always) func euclideousKitScaledVelocity(base: Int, kitVel: Int) -> UInt8? {
     if kitVel <= 0 { return nil }

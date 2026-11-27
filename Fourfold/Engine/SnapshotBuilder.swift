@@ -530,7 +530,7 @@ enum SnapshotBuilder {
             if kitLanes.prefix(4).contains(where: { $0.euclideousFixedLane }) {
                 var kit = EuclideousKitSnap()
                 kit.notes = [UInt8](repeating: 0, count: 32); kit.vel = [UInt8](repeating: 100, count: 32)
-                for (li, l) in kitLanes.prefix(4).enumerated() {
+                for (li, l) in kitLanes.prefix(4).enumerated() {   // KIT CARD V2 §2.1: a following lane's effective kit is baked upstream in `euclideousLinesResolved`, so `l.kitNotesResolved` is already the session default
                     kit.on[li] = l.euclideousFixedLane
                     // DRUM / KIT fill this lane's snapshot: KIT → the 8 kit notes + per-rank kitVel; DRUM → one note (×8) + the velocity ramp. The Router reads `kitSnap` uniformly (pitch bypass, §3.1 scale, §3.4 dedup, fillKitPool, audition all unchanged).
                     switch l.laneModeResolved {

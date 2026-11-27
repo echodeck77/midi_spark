@@ -47,6 +47,7 @@
 		113044D12C85756D9F258C57 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
 		11389DE07A052AF31C5B1535 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
 		1201E348FC95B54F90EE8A18 /* FillPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBFF5E26F62376802BC80AC /* FillPreview.swift */; };
+		123D0AA0616E27394114761A /* KitTemplateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 629EBD1C7DD3BDE6B3AECAD6 /* KitTemplateStore.swift */; };
 		12439134E8AE1F2CBAFD42A0 /* LaneViewStripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0207165FA77A08D14FDF6B09 /* LaneViewStripTests.swift */; };
 		126EFE2CA5202E0E11739F95 /* FourfoldMonkeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A2360C33B73BDF7D5D05DD /* FourfoldMonkeyTests.swift */; };
 		131E579A0B97B41453E20E43 /* FourfoldParam.swift in Sources */ = {isa = PBXBuildFile; fileRef = C86A6F16D4CFCB75CB7DA2D9 /* FourfoldParam.swift */; };
@@ -129,6 +130,7 @@
 		340E1D68D57C83C9BE66E996 /* EmitterRatchetUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FDFAC49DE1FD6F45236A30 /* EmitterRatchetUI.swift */; };
 		34195C303DA097D31779F795 /* RibbonSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A80C14200B901772BEC38D7 /* RibbonSettingsTests.swift */; };
 		3437F7ABE70D5C93E7A4D0C0 /* LaneSoloTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4BE4C9BF1C8E4D1C7A915E /* LaneSoloTests.swift */; };
+		34C3D9690012FF1C82EF0930 /* KitTemplateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 629EBD1C7DD3BDE6B3AECAD6 /* KitTemplateStore.swift */; };
 		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		35427A57A03F8DABD474C3F4 /* MutePanelViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6DBAE3058BADDEA8F3F8260 /* MutePanelViews.swift */; };
 		357DC14C83401AC839525963 /* StyleTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1798771BE2116F2E07FB6C98 /* StyleTokens.swift */; };
@@ -251,6 +253,7 @@
 		64D15BEC504AF3DF1CD41F3E /* LaneStripBands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53BC97CD3AF04DB5093562C9 /* LaneStripBands.swift */; };
 		65474F46CCF46A2F9D7EA3A0 /* HarmonyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24C15BDAB89DD4B8DEF42338 /* HarmonyLayout.swift */; };
 		66E87FCC147957D2D5BE9931 /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */; };
+		6705A4960E3C84FD9D8F463D /* KitCardV2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54289CBCF22127DC50FB520 /* KitCardV2Tests.swift */; };
 		672E709B5A0D1591E9DDE621 /* LaneStripFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F2A9EB8BFA7038CE4C84B1 /* LaneStripFuzzTests.swift */; };
 		676986606F36F0B2461B1DC7 /* RouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688828AD8E02A3FA163D3656 /* RouterTests.swift */; };
 		67A54484318BE306142EB54F /* BuildPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */; };
@@ -585,6 +588,7 @@
 		F05E9AE1A7913956B2AE8C67 /* LaneLockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7DA6ABCB082900BEE40BD4E /* LaneLockTests.swift */; };
 		F07697603C75FE4AA225AF36 /* DirectionDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11AE3A0BF3AC4B072700339 /* DirectionDisplayTests.swift */; };
 		F0B13B4DB2556D694F05A5F3 /* BuildSceneLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A51673FFDFE583B72F5DAE /* BuildSceneLogic.swift */; };
+		F1744C3BC75FA140F9F00BC8 /* KitTemplateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 629EBD1C7DD3BDE6B3AECAD6 /* KitTemplateStore.swift */; };
 		F18A47A3B59F238F864F570D /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08530382AAA337959EA7983D /* SnapshotBuilder.swift */; };
 		F1B8743F87BCC3FA21CDD1B7 /* AutoPilot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F760F9EC70B6E5E30769292C /* AutoPilot.swift */; };
 		F206B3539A602B22B12F6CF5 /* RateTimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1946456A5B99A0460A26CA77 /* RateTimingTests.swift */; };
@@ -818,6 +822,7 @@
 		5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelTapeAdapterTests.swift; sourceTree = "<group>"; };
 		61A29EBC243C8C44F0013668 /* FXTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXTabTests.swift; sourceTree = "<group>"; };
 		61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceTests.swift; sourceTree = "<group>"; };
+		629EBD1C7DD3BDE6B3AECAD6 /* KitTemplateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KitTemplateStore.swift; sourceTree = "<group>"; };
 		6397AA28EB42C5965E4A7761 /* FourfoldMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldMark.swift; sourceTree = "<group>"; };
 		64516CBB3BE6C619CF15CBF3 /* FourfoldApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldApp.swift; sourceTree = "<group>"; };
 		66E64ED46642C8C14AB67704 /* AcceptanceGeneratorsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceGeneratorsTests.swift; sourceTree = "<group>"; };
@@ -966,6 +971,7 @@
 		B3CD05B6D166BF878367A888 /* RoomsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomsPage.swift; sourceTree = "<group>"; };
 		B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffArrowPainter.swift; sourceTree = "<group>"; };
 		B505AD7C314653CD2DB395CD /* FourfoldViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldViewController.swift; sourceTree = "<group>"; };
+		B54289CBCF22127DC50FB520 /* KitCardV2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KitCardV2Tests.swift; sourceTree = "<group>"; };
 		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
 		B9188F7A070458EDDCB34B2C /* FillStepFlashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillStepFlashTests.swift; sourceTree = "<group>"; };
 		B94A31D253520EA87F4B4A91 /* LaneStripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripTests.swift; sourceTree = "<group>"; };
@@ -1274,6 +1280,7 @@
 				3248864521E73EC4CC4F6F45 /* InputsTestAuditionTests.swift */,
 				9BD3D562FB62A7DDBC0632B9 /* InputsV2Tests.swift */,
 				5E4B699546974CAE2E93625C /* KernelHostTests.swift */,
+				B54289CBCF22127DC50FB520 /* KitCardV2Tests.swift */,
 				A8ADF1515B1E76BB1D1A003D /* KitSourceRouterTests.swift */,
 				2723EF5DD21AF157C72E87BE /* KitSourceTests.swift */,
 				95DFB40E58B1ED011B0EB609 /* KitTemplatesTests.swift */,
@@ -1586,6 +1593,7 @@
 				24C15BDAB89DD4B8DEF42338 /* HarmonyLayout.swift */,
 				C1F4BE86660C760F3CD73866 /* Kernel.swift */,
 				5AD8F58D48A118D4F9F01399 /* KitTemplates.swift */,
+				629EBD1C7DD3BDE6B3AECAD6 /* KitTemplateStore.swift */,
 				53BC97CD3AF04DB5093562C9 /* LaneStripBands.swift */,
 				594C398B05FB437D79DB0AFA /* LaneViewStrip.swift */,
 				0504D981DD4BF1856C773AA7 /* MidiFile.swift */,
@@ -1980,6 +1988,7 @@
 				3A2A785935974B530833355F /* HocketPopup.swift in Sources */,
 				6B98CD09D9D422991069BB57 /* Kernel.swift in Sources */,
 				B7F34C89707AA6CCCAC8C954 /* KitEditorViews.swift in Sources */,
+				34C3D9690012FF1C82EF0930 /* KitTemplateStore.swift in Sources */,
 				AF554A82511BB8865A1FF1D2 /* KitTemplates.swift in Sources */,
 				C4FC8D3D987668BF1C537345 /* LaneSoloPainter.swift in Sources */,
 				5CB31F8F6C0BFA7B58C8A419 /* LaneStripBandPainter.swift in Sources */,
@@ -2225,8 +2234,10 @@
 				0275A7783E9F5083A68FE800 /* InputsV2Tests.swift in Sources */,
 				A5E9CAB57C550268D5B0C37A /* Kernel.swift in Sources */,
 				981570A593FE41A139816F6C /* KernelHostTests.swift in Sources */,
+				6705A4960E3C84FD9D8F463D /* KitCardV2Tests.swift in Sources */,
 				982371FDEC8AC15D667A2237 /* KitSourceRouterTests.swift in Sources */,
 				51A67992B8A38DDAB7F3DE3C /* KitSourceTests.swift in Sources */,
+				123D0AA0616E27394114761A /* KitTemplateStore.swift in Sources */,
 				82AD1C446A3E0D6E37379FD9 /* KitTemplates.swift in Sources */,
 				FD45CC60E5A711816C6FBEE6 /* KitTemplatesTests.swift in Sources */,
 				F05E9AE1A7913956B2AE8C67 /* LaneLockTests.swift in Sources */,
@@ -2415,6 +2426,7 @@
 				E66DAEB014A43E4E83288E12 /* HocketPopup.swift in Sources */,
 				310545FAC5863CD3DAD77CC4 /* Kernel.swift in Sources */,
 				F4F4059B8F2359C36D150D43 /* KitEditorViews.swift in Sources */,
+				F1744C3BC75FA140F9F00BC8 /* KitTemplateStore.swift in Sources */,
 				02EA9DCD9D78A50BED992574 /* KitTemplates.swift in Sources */,
 				31D850833DB23E88DEC4FE99 /* LaneSoloPainter.swift in Sources */,
 				8D5B9D35929B24CDA1B41C1D /* LaneStripBandPainter.swift in Sources */,
