@@ -4527,6 +4527,21 @@ struct EuclideousPage: View {
         .accessibilityLabel(EuclideousRestartEditorAX.resetsCard(lane: idx))   // §4.1
     }
 
+    /// AMEND 1 §5.1 — a rect with only its LEADING (top-left + bottom-left) corners rounded, the trailing corners square (iOS 15 has no `UnevenRoundedRectangle`, so the path is built by hand). Used for a cut block.
+    private func euclideousLeadingRoundedPath(_ r: CGRect, radius rad: CGFloat) -> Path {
+        let rr = max(0, min(rad, min(r.width, r.height) / 2))
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX + rr, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.minY))                    // top edge → square trailing-top
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))                    // right edge → square trailing-bottom
+        p.addLine(to: CGPoint(x: r.minX + rr, y: r.maxY))              // bottom edge
+        p.addArc(center: CGPoint(x: r.minX + rr, y: r.maxY - rr), radius: rr, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)   // bottom-left
+        p.addLine(to: CGPoint(x: r.minX, y: r.minY + rr))             // left edge
+        p.addArc(center: CGPoint(x: r.minX + rr, y: r.minY + rr), radius: rr, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)   // top-left
+        p.closeSubpath()
+        return p
+    }
+
     /// RESETS V3 §2: ONE tile — two block rows (RHYTHM passes above, MELODY riff cycles below) on a shared span, one playhead + "still to come" dim over both, a host-bar/beat grid, two "N OF M" values; no hatching. The Canvas paints the pure `ResetsTileV3*` data; labels + values are Text overlays. All looks device-owed (§8). When ALL is set the span follows ALL's current link (§2.4).
     @ViewBuilder
     private func resetsTileV3(_ idx: Int, cfg: EuclideousWalkLaneConfig?, accent: Color, tw: CGFloat, beat: Double, running: Bool, line: EuclidLine,
@@ -4539,7 +4554,6 @@ struct EuclideousPage: View {
         let grid = euclideousResetsHostGridLines(spanStart: span.start, spanLen: span.len, barBeats: clock.beatsPerBar, rulerWidth: f.rulerWidth)
         let rhythmSet = cfg?.chains.hasRhythmRestarts ?? false
         let melodySet = cfg?.chains.hasMelodyRestarts ?? false
-        let lightTone = Color(hex: 0xFFFFFF)   // §2.6 "light tone" ≈ lane100 × 45 % white; drawn as the accent then white@45 % (device-owed approximation)
         return ZStack(alignment: .topLeading) {
             Canvas { ctx, _ in
                 typealias M = EuclideousResetsTileMetrics
@@ -4554,16 +4568,21 @@ struct EuclideousPage: View {
                 func drawRow(_ row: CGRect, _ blocks: [EuclideousRestartRulerBlock], set: Bool) {
                     var clip = ctx; clip.clip(to: track)
                     let fill = set ? lane100(accent) : Color(hex: 0x5C626C)
+                    let nw: CGFloat = 3.5, nh: CGFloat = 5   // AMEND 1 §5.1: the notch cut from a cut block's trailing-top corner
+                    var lastNotchX = -CGFloat.greatestFiniteMagnitude
                     for blk in blocks {
                         let x0 = x(blk.start), x1 = x(blk.end)
                         let w = max(0, x1 - x0 - M.blockGap)
                         guard w > 0 || x1 > x0 else { continue }
-                        clip.fill(Path(roundedRect: CGRect(x: x0, y: row.minY, width: max(0.5, w), height: row.height), cornerRadius: M.blockRadius), with: .color(fill))
-                        if blk.cut {   // §2.6: a cut tick (no hatching) in the lane's light tone, centred 2.5 before the block's end
-                            let tx = x1 - M.cutTickInset - M.cutTickW / 2
-                            let tr = CGRect(x: tx, y: row.minY - M.cutTickExtra, width: M.cutTickW, height: row.height + M.cutTickExtra * 2)
-                            ctx.fill(Path(roundedRect: tr, cornerRadius: M.cutTickRadius), with: .color(lane100(accent)))
-                            ctx.fill(Path(roundedRect: tr, cornerRadius: M.cutTickRadius), with: .color(lightTone.opacity(0.45)))
+                        let r = CGRect(x: x0, y: row.minY, width: max(0.5, w), height: row.height)
+                        if blk.cut {
+                            // AMEND 1 §5.1: a cut block keeps radius 2 on its LEADING corners only and draws a 3.5 × 5 notch cut from the trailing-top corner in the track colour — no tick, no hatching, nothing outside the row.
+                            clip.fill(euclideousLeadingRoundedPath(r, radius: M.blockRadius), with: .color(fill))
+                            let keep = euclideousNotchKeep(x: r.maxX, lastKept: lastNotchX)   // §2.8/§5.1: drop a notch closer than 3 pt to the previous
+                            if keep.keep { clip.fill(Path(CGRect(x: r.maxX - nw, y: r.minY, width: nw, height: nh)), with: .color(Color(hex: 0x2A2D34))) }
+                            lastNotchX = keep.lastKept
+                        } else {
+                            clip.fill(Path(roundedRect: r, cornerRadius: M.blockRadius), with: .color(fill))
                         }
                     }
                 }

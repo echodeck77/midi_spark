@@ -247,6 +247,26 @@ final class RestartEditorUITests: XCTestCase {
         let narrow = euclideousAllRowLayout(width: 360, height: H, count: 6)
         XCTAssertEqual(narrow.rulerUnder80, narrow.ruler.width < 80)
     }
+    func testNotchKeepDropsCrowdedNotches() {
+        // AMEND 1 §5.1/§2.8: a notch is dropped when it is under 3 pt from the previous KEPT one.
+        var last = -CGFloat.greatestFiniteMagnitude
+        let a = euclideousNotchKeep(x: 10, lastKept: last); XCTAssertTrue(a.keep); last = a.lastKept
+        let b = euclideousNotchKeep(x: 12, lastKept: last); XCTAssertFalse(b.keep, "2 pt apart is dropped"); last = b.lastKept
+        XCTAssertEqual(last, 10, "a dropped notch doesn't advance the last-kept x")
+        let c = euclideousNotchKeep(x: 13, lastKept: last); XCTAssertTrue(c.keep, "3 pt from the last KEPT is kept"); last = c.lastKept
+        XCTAssertEqual(last, 13)
+    }
+    func testSplitLabelsAlignToTileAtX10() {
+        // AMEND 1 §5.2: split row labels at x 10 (the tile's label x), their controls from x 64; linked rows unchanged (x 0).
+        let sz = CGSize(width: 440, height: 400)
+        let split = euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: true, withRhythm: false)
+        XCTAssertEqual(split.rhythm.labelColumn.minX, 10); XCTAssertEqual(split.melody.labelColumn.minX, 10)
+        XCTAssertEqual(split.rhythm.chips.first!.minX, 64); XCTAssertEqual(split.melody.chips.first!.minX, 64)
+        XCTAssertEqual(split.rhythm.countChips.first!.minX, 64, "count rows start at x 64 too")
+        XCTAssertEqual(EuclideousResetsTileMetrics.labelX, 10, "the tile's label x the split rows align to")
+        let linked = euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: false, withRhythm: true)
+        XCTAssertEqual(linked.rhythm.chips.first!.minX, 0, "linked controls from x 0")
+    }
     /// §3 interaction: the count-chip drag helper, the wrap, and "any FREE-row edit turns it live".
     func testTest31TheCountChipDragWrapAndFreeRowWaking() {
         // the drag helper: 6 pt to begin, 12 pt a step, up increases, clamped to the ladder's ends

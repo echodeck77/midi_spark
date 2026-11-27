@@ -305,6 +305,7 @@ func euclideousResetsCardLayoutV3(size: CGSize, rhythmActive: Bool, melodyActive
     let rowH: CGFloat = 28, rowGap: CGFloat = 8, ctrlTop = tileH + 8, stripH: CGFloat = 28
     let linked = withRhythm   // AMEND 1 §2.1: linked ⇔ withRhythm on (the melody chain is kept inactive while withRhythm is on — §2.2 enforces it at the edit and at load, so a lit link never sits beside a split view, §8)
     let unitW: CGFloat = 40, unitGap: CGFloat = 4, srcW: CGFloat = 20, srcGap: CGFloat = 4, countW: CGFloat = 36, countGap: CGFloat = 4, labelW: CGFloat = 54, unitsToSrc: CGFloat = 10   // AMEND 1 §3.1: count chips 36 wide (was 44)
+    let labelX: CGFloat = 10, splitX: CGFloat = 64   // AMEND 1 §5.2: the split label sits at x 10 (the tile's label x), its controls start at x 64 (= 10 + labelW, was 54)
     let linkButton = CGRect(x: TW - 28, y: ctrlTop + (rowH - 28) / 2, width: 28, height: 28)
     let linkButtonHit = CGRect(x: TW - 36, y: ctrlTop + (rowH - 44) / 2, width: 36, height: 44)
     func part(top: CGFloat, x0: CGFloat, label: CGRect, active: Bool) -> EuclideousRestartSectionFramesV2 {
@@ -316,8 +317,8 @@ func euclideousResetsCardLayoutV3(size: CGSize, rhythmActive: Bool, melodyActive
         return EuclideousRestartSectionFramesV2(top: top, labelColumn: label, freePill: .zero, chips: chips, sources: sources, countChips: countChips, axisLabel: nil, cells: [])
     }
     let rhythmRows = rhythmActive ? 2 : 1
-    let rhythmX0: CGFloat = linked ? 0 : labelW
-    let rhythm = part(top: ctrlTop, x0: rhythmX0, label: linked ? .zero : CGRect(x: 0, y: ctrlTop, width: labelW, height: rowH), active: rhythmActive)
+    let rhythmX0: CGFloat = linked ? 0 : splitX   // AMEND 1 §5.2: split controls from x 64
+    let rhythm = part(top: ctrlTop, x0: rhythmX0, label: linked ? .zero : CGRect(x: labelX, y: ctrlTop, width: labelW, height: rowH), active: rhythmActive)
     var melody = EuclideousRestartSectionFramesV2(top: 0, labelColumn: .zero, freePill: .zero, chips: [], sources: [], countChips: [], axisLabel: nil, cells: [])
     var rows = rhythmRows
     var bottom = ctrlTop + CGFloat(rhythmRows) * rowH + CGFloat(max(0, rhythmRows - 1)) * rowGap
@@ -329,17 +330,17 @@ func euclideousResetsCardLayoutV3(size: CGSize, rhythmActive: Bool, melodyActive
     }
     if !linked {
         let melodyTop = bottom + rowGap
-        melody = part(top: melodyTop, x0: labelW, label: CGRect(x: 0, y: melodyTop, width: labelW, height: rowH), active: melodyActive)
+        melody = part(top: melodyTop, x0: splitX, label: CGRect(x: labelX, y: melodyTop, width: labelW, height: rowH), active: melodyActive)
         let melodyRows = melodyActive ? 2 : 1
         rows += melodyRows
         bottom = melodyTop + CGFloat(melodyRows) * rowH + CGFloat(max(0, melodyRows - 1)) * rowGap
         // §3.5: a MELODY strip sits sp8 below the melody counts row and extends the content down.
         if openStrip == .melody, melodyActive {
-            stripRow = CGRect(x: labelW, y: bottom + rowGap, width: max(0, TW - labelW), height: stripH)
+            stripRow = CGRect(x: splitX, y: bottom + rowGap, width: max(0, TW - splitX), height: stripH)
             bottom = stripRow.maxY
         }
     }
-    let row1Fits = TW >= labelW + 3 * unitW + 2 * unitGap + unitsToSrc + 4 * srcW + 3 * srcGap + 8 + 28
+    let row1Fits = TW >= splitX + 3 * unitW + 2 * unitGap + unitsToSrc + 4 * srcW + 3 * srcGap + 8 + 28   // AMEND 1 §5.2: the controls' +10 shift raises the fit threshold
     return EuclideousResetsCardLayoutV3(size: size, tile: CGRect(x: 0, y: 0, width: TW, height: tileH), linked: linked,
                                         rhythm: rhythm, melody: melody, rhythmActive: rhythmActive, melodyActive: melodyActive,
                                         linkButton: linkButton, linkButtonHit: linkButtonHit, rowCount: rows, row1Fits: row1Fits, contentBottom: bottom, stripRow: stripRow)

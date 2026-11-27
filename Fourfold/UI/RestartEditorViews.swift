@@ -497,11 +497,11 @@ struct EuclideousRestartSectionView: View {
             .accessibilityLabel(EuclideousRestartEditorAX.addLink(rhythm: rhythm))
             .accessibilityAddTraits(.isButton)
     }
-    /// §3.4: the split label ("RHYTHM"/"MELODY"), 8 pt heavy, in the label column (card mode only).
+    /// §3.4 / AMEND 1 §5.2: the split label ("RHYTHM"/"MELODY"), 8 pt heavy, CENTRED in its [x 10, x 64] column so it lines up with the tile's label (which is drawn the same way, §8).
     private func cardLabelView(_ s: String) -> some View {
         let r = frames.labelColumn
         return Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.08 * 8).foregroundColor(Color(hex: 0xAAB0BA))
-            .frame(width: r.width, height: r.height, alignment: .leading).offset(x: r.minX, y: r.minY).accessibilityHidden(true)
+            .frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY).accessibilityHidden(true)
     }
     /// §3.8: the card's − frame — sp4 after the + box (or after the last chip at four links); shown at 1+ links.
     private func cardMinusFrame() -> CGRect? {

@@ -169,6 +169,11 @@ func euclideousAllRowNowLink(beat: Double, barBeats: Double, chain: [UInt8]) -> 
     return (last, Int(chain[last]), Int(chain[last]))
 }
 
+/// AMEND 1 §5.1/§2.8 — keep a cut notch only when it is ≥ `minApart` from the previous KEPT one (dropped otherwise, so notches never crowd). Returns whether to draw it and the new "last kept x".
+func euclideousNotchKeep(x: CGFloat, lastKept: CGFloat, minApart: CGFloat = EuclideousResetsTileMetrics.cutTickMinApart) -> (keep: Bool, lastKept: CGFloat) {
+    x - lastKept >= minApart ? (true, x) : (false, lastKept)
+}
+
 // MARK: - RESETS V3 AMEND 1 §4 — the ALL row's layout (ALL label · free slots OR chips + + + ruler · value)
 
 /// §4.2: the eight ALL free-row length slots and the set-row chip ladder — the same host-bar values.

@@ -105,8 +105,8 @@ final class ResetsCardLayoutTests: XCTestCase {
         // SPLIT (withRhythm off): two labelled parts, units from x 54, MELODY below RHYTHM's rows.
         let split = euclideousResetsCardLayoutV3(size: size, rhythmActive: true, melodyActive: true, withRhythm: false)
         XCTAssertFalse(split.linked); XCTAssertEqual(split.rowCount, 4, "both parts active ⇒ four rows")
-        near(split.rhythm.labelColumn.minX, 0, "split RHYTHM label at x 0"); near(split.rhythm.labelColumn.width, 54, "label 54 wide")
-        near(split.rhythm.chips.first!.minX, 54, "split: units from x 54")
+        near(split.rhythm.labelColumn.minX, 10, "split RHYTHM label at x 10 (AMEND 1 §5.2)"); near(split.rhythm.labelColumn.width, 54, "label 54 wide")
+        near(split.rhythm.chips.first!.minX, 64, "split: units from x 64 (AMEND 1 §5.2, was 54)")
         XCTAssertGreaterThan(split.melody.top, split.rhythm.countChips.first!.maxY, "MELODY sits below RHYTHM's two rows")
         // a FREE linked lane: one row, the + box on row 1, and the link button still shown (§3.4 departure).
         let free = euclideousResetsCardLayoutV3(size: size, rhythmActive: false, melodyActive: false, withRhythm: true)
