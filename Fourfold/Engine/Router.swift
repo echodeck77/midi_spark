@@ -4458,10 +4458,10 @@ final class Router {
                                 }
                                 let bus = Int(notesLayer ? addNotesBus : addRiffBus)
                                 for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == bus {
-                                    // KIT SOURCE §3.4: duplicate ranks sending the same note to the same part sound ONCE, at the HIGHER kit velocity — keep whichever rank has the larger kitVel (the base is the lane's own pad, equal for both, so the louder rank wins). Non-KIT: first insertion wins, unchanged.
-                                    if euclideousKit.anyOn, isEuclideousRow, lineIndex < 4, euclideousKit.kitOn(lineIndex), let nr = rank, pitchRank[j] >= 1,
-                                       euclideousKit.vel(lane: lineIndex, rank: Int(nr) - 1) > euclideousKit.vel(lane: lineIndex, rank: Int(pitchRank[j]) - 1) {
-                                        pitchRank[j] = nr
+                                    // HIGHEST VELOCITY WINS (Paul 2026-11-27, generalising KIT SOURCE §3.4): a duplicate pitch on the same part sounds ONCE, at the LOUDER velocity (and, for KIT, carries the louder rank's label). Equal velocity ⇒ first stays (byte-identical).
+                                    if vel > pitchVel[j] {
+                                        pitchVel[j] = vel
+                                        if let nr = rank, nr >= 1 { pitchRank[j] = nr }
                                     }
                                     return
                                 }
@@ -4471,13 +4471,14 @@ final class Router {
                                 } else if notesLayer {   // §2.5: a notes pitch the riff strikes on this hit too (or is HOLDING through a tied rest) leaves only on the outputs the riff does not use; none left ⇒ the duplicate is dropped, as it always was
                                     // PER-PART SOLO: a riff part the solo silences strikes nothing, so a notes pitch is never deduped against its copy (the silenced copy leaves the set below)
                                     let riffSoloSilenced = soloPartBits & Int(addRiffBus) != 0
-                                    var riffHas = heldByRiff && !riffSoloSilenced, inSet = false
-                                    if !riffHas && !riffSoloSilenced { for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == Int(addRiffBus) { riffHas = true; inSet = true; break } }
+                                    var riffHas = heldByRiff && !riffSoloSilenced, inSet = false, riffIdx = -1
+                                    if !riffHas && !riffSoloSilenced { for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == Int(addRiffBus) { riffHas = true; inSet = true; riffIdx = j; break } }
                                     // ENGINE REVIEW (2026-10-28): with a HOCKET rule lit the in-set duplicate is kept through the remap and resolved AFTER it (against the parts the pitches actually end up on) — dropping it here took the notes layer's
                                     // pitch away for good on a turn where the rule swapped the riff off the output. With no rule lit this is the old immediate rule, byte for byte.
                                     if riffHas && !(inSet && hocketRules.litMask != 0) {
                                         let notesOuts = partOut[addNotesBus.trailingZeroBitCount] & 0x0F, riffOuts = partOut[addRiffBus.trailingZeroBitCount] & 0x0F
-                                        if notesOuts & riffOuts != 0 { if notesOuts & ~riffOuts == 0 { return }; outs = notesOuts & ~riffOuts }
+                                        // HIGHEST VELOCITY WINS (Paul 2026-11-27): a notes pitch the riff already plays on the SAME outputs is absorbed into the riff note, which takes the louder of the two velocities (a riff HELD from an earlier hit — riffIdx < 0 — keeps its velocity).
+                                        if notesOuts & riffOuts != 0 { if notesOuts & ~riffOuts == 0 { if riffIdx >= 0, vel > pitchVel[riffIdx] { pitchVel[riffIdx] = vel }; return }; outs = notesOuts & ~riffOuts }
                                     }
                                 }
                                 pitches[pitchCount] = v; pitchVel[pitchCount] = vel; pitchGate[pitchCount] = g; pitchRaw[pitchCount] = raw ?? v
