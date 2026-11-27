@@ -252,12 +252,42 @@ func euclideousResetsCardLayout(size: CGSize) -> EuclideousResetsCardLayout {
                                       appliedCase: chosen.c, row1Fits: TW >= 262 - 1e-9)
 }
 
+// MARK: - RESETS V3 AMEND 1 §3 — the value strip (replaces the chip taps / chevrons / drag / − box)
+
+/// AMEND 1 §3.2 — which count chip has its value strip open (one per tab): a lane chip or the ALL chip.
+enum EuclideousResetsStripTarget: Equatable {
+    case lane(lane: Int, rhythm: Bool, slot: Int)
+    case all(slot: Int)
+}
+/// Which card section a value strip is open under (for the card layout — the slot doesn't affect geometry).
+enum EuclideousResetsStripSide: Equatable { case rhythm, melody }
+
+struct EuclideousRestartValueStripLayout: Equatable {
+    var buttons: [CGRect]    // the value buttons, left → right (0-based in the strip's own frame)
+    var backspace: CGRect    // the ⌫, 28 × 28, sp4 after the last value
+    var buttonW: CGFloat
+    var under26: Bool         // §3.3: the share fell below the 26 pt floor (drawn at 26, reported)
+}
+/// AMEND 1 §3.3 — the value strip's frames within a `width` × 28 row: `count` equal value buttons (sp4), then sp4 and a 28 × 28 ⌫. Button width = the strip's width less the ⌫ (28) and its gap (4), shared equally, clamped [26, 40]; `under26` flags a width the row can't honour (drawn at 26 and reported, §3.3). Left-aligned — a wide strip leaves trailing space, a narrow one truncates (§4.6).
+func euclideousRestartValueStripLayout(width: CGFloat, count: Int) -> EuclideousRestartValueStripLayout {
+    let n = max(1, count)
+    let gap: CGFloat = 4, bsW: CGFloat = 28, h: CGFloat = 28
+    let avail = width - bsW - gap - CGFloat(n - 1) * gap         // the value buttons' total share, less the ⌫ and all gaps
+    let raw = avail / CGFloat(n)
+    let under26 = raw < 26
+    let w = min(40, max(26, raw))
+    var x: CGFloat = 0
+    var buttons: [CGRect] = []
+    for _ in 0..<n { buttons.append(CGRect(x: x, y: 0, width: w, height: h)); x += w + gap }
+    return EuclideousRestartValueStripLayout(buttons: buttons, backspace: CGRect(x: x, y: 0, width: bsW, height: h), buttonW: w, under26: under26)
+}
+
 // MARK: - RESETS V3 §3 — the reworked card: one tile + linked/split control rows (no FREE pills; a link button). Pure geometry; `EuclideousResetsControlsView` draws the sections, `resetsTileV3` the tile.
 
 struct EuclideousResetsCardLayoutV3: Equatable {
     var size: CGSize
     var tile: CGRect                 // §2.2: one tile, TW × 46, at the top
-    var linked: Bool                 // §3.3: withRhythm on AND the melody chain inactive ⇒ ONE part (rhythm; the melody follows)
+    var linked: Bool                 // AMEND 1 §2.1: withRhythm on ⇒ ONE part (rhythm; the melody follows)
     var rhythm: EuclideousRestartSectionFramesV2
     var melody: EuclideousRestartSectionFramesV2   // split only; unused in the linked view
     var rhythmActive: Bool, melodyActive: Bool
@@ -266,14 +296,15 @@ struct EuclideousResetsCardLayoutV3: Equatable {
     var rowCount: Int                // §3.1: for the floor report
     var row1Fits: Bool               // §3.4: row 1 needs TW ≥ 54 + units + 10 + squares + 8 + 28
     var contentBottom: CGFloat
+    var stripRow: CGRect = .zero     // AMEND 1 §3.5: the open value strip's row (from the counts' x to TW, 28 tall); .zero when none open
 }
-/// §3.1–§3.4 — the card's tile + control frames. A part's unit chips + sources sit on row 1 (ONLY while the chain is active, §3.5); the count chips + (add / minus) on row 2. An inactive chain shows ONLY its + box, on row 1. Split adds a 54 pt label column; the link button rides the rhythm/top row.
-func euclideousResetsCardLayoutV3(size: CGSize, rhythmActive: Bool, melodyActive: Bool, withRhythm: Bool) -> EuclideousResetsCardLayoutV3 {
+/// §3.1–§3.4 — the card's tile + control frames. A part's unit chips + sources sit on row 1 (ONLY while the chain is active, §3.5); the count chips + (add) on row 2. An inactive chain shows ONLY its + box, on row 1. Split adds a 54 pt label column; the link button rides the rhythm/top row. AMEND 1 §3.5: `openStrip` inserts a value-strip row below that section's counts row and pushes rows below it down.
+func euclideousResetsCardLayoutV3(size: CGSize, rhythmActive: Bool, melodyActive: Bool, withRhythm: Bool, openStrip: EuclideousResetsStripSide? = nil) -> EuclideousResetsCardLayoutV3 {
     let TW = max(1, size.width)
     let tileH = EuclideousResetsTileMetrics.height
-    let rowH: CGFloat = 28, rowGap: CGFloat = 8, ctrlTop = tileH + 8
+    let rowH: CGFloat = 28, rowGap: CGFloat = 8, ctrlTop = tileH + 8, stripH: CGFloat = 28
     let linked = withRhythm   // AMEND 1 §2.1: linked ⇔ withRhythm on (the melody chain is kept inactive while withRhythm is on — §2.2 enforces it at the edit and at load, so a lit link never sits beside a split view, §8)
-    let unitW: CGFloat = 40, unitGap: CGFloat = 4, srcW: CGFloat = 20, srcGap: CGFloat = 4, countW: CGFloat = 44, countGap: CGFloat = 4, labelW: CGFloat = 54, unitsToSrc: CGFloat = 10
+    let unitW: CGFloat = 40, unitGap: CGFloat = 4, srcW: CGFloat = 20, srcGap: CGFloat = 4, countW: CGFloat = 36, countGap: CGFloat = 4, labelW: CGFloat = 54, unitsToSrc: CGFloat = 10   // AMEND 1 §3.1: count chips 36 wide (was 44)
     let linkButton = CGRect(x: TW - 28, y: ctrlTop + (rowH - 28) / 2, width: 28, height: 28)
     let linkButtonHit = CGRect(x: TW - 36, y: ctrlTop + (rowH - 44) / 2, width: 36, height: 44)
     func part(top: CGFloat, x0: CGFloat, label: CGRect, active: Bool) -> EuclideousRestartSectionFramesV2 {
@@ -285,21 +316,33 @@ func euclideousResetsCardLayoutV3(size: CGSize, rhythmActive: Bool, melodyActive
         return EuclideousRestartSectionFramesV2(top: top, labelColumn: label, freePill: .zero, chips: chips, sources: sources, countChips: countChips, axisLabel: nil, cells: [])
     }
     let rhythmRows = rhythmActive ? 2 : 1
-    let rhythm = part(top: ctrlTop, x0: linked ? 0 : labelW, label: linked ? .zero : CGRect(x: 0, y: ctrlTop, width: labelW, height: rowH), active: rhythmActive)
+    let rhythmX0: CGFloat = linked ? 0 : labelW
+    let rhythm = part(top: ctrlTop, x0: rhythmX0, label: linked ? .zero : CGRect(x: 0, y: ctrlTop, width: labelW, height: rowH), active: rhythmActive)
     var melody = EuclideousRestartSectionFramesV2(top: 0, labelColumn: .zero, freePill: .zero, chips: [], sources: [], countChips: [], axisLabel: nil, cells: [])
     var rows = rhythmRows
     var bottom = ctrlTop + CGFloat(rhythmRows) * rowH + CGFloat(max(0, rhythmRows - 1)) * rowGap
+    var stripRow = CGRect.zero
+    // §3.5: a RHYTHM strip sits sp8 below the rhythm counts row and pushes the melody section down.
+    if openStrip == .rhythm, rhythmActive {
+        stripRow = CGRect(x: rhythmX0, y: bottom + rowGap, width: max(0, TW - rhythmX0), height: stripH)
+        bottom = stripRow.maxY
+    }
     if !linked {
         let melodyTop = bottom + rowGap
         melody = part(top: melodyTop, x0: labelW, label: CGRect(x: 0, y: melodyTop, width: labelW, height: rowH), active: melodyActive)
         let melodyRows = melodyActive ? 2 : 1
         rows += melodyRows
         bottom = melodyTop + CGFloat(melodyRows) * rowH + CGFloat(max(0, melodyRows - 1)) * rowGap
+        // §3.5: a MELODY strip sits sp8 below the melody counts row and extends the content down.
+        if openStrip == .melody, melodyActive {
+            stripRow = CGRect(x: labelW, y: bottom + rowGap, width: max(0, TW - labelW), height: stripH)
+            bottom = stripRow.maxY
+        }
     }
     let row1Fits = TW >= labelW + 3 * unitW + 2 * unitGap + unitsToSrc + 4 * srcW + 3 * srcGap + 8 + 28
     return EuclideousResetsCardLayoutV3(size: size, tile: CGRect(x: 0, y: 0, width: TW, height: tileH), linked: linked,
                                         rhythm: rhythm, melody: melody, rhythmActive: rhythmActive, melodyActive: melodyActive,
-                                        linkButton: linkButton, linkButtonHit: linkButtonHit, rowCount: rows, row1Fits: row1Fits, contentBottom: bottom)
+                                        linkButton: linkButton, linkButtonHit: linkButtonHit, rowCount: rows, row1Fits: row1Fits, contentBottom: bottom, stripRow: stripRow)
 }
 
 // MARK: - what a tap does (§7.4) — one undo step each
@@ -313,6 +356,7 @@ enum EuclideousRestartEdit: Equatable {
     case setLink(rhythm: Bool, slot: Int, value: Int)  // §3: a vertical drag sets a value directly (snapped to the unit's ladder)
     case addLink(rhythm: Bool)
     case removeLink(rhythm: Bool, slot: Int)  // §3: a long press (or VoiceOver's "Remove link") — ONE edit; never the only link
+    case deleteLink(rhythm: Bool, slot: Int)  // AMEND 1 §3.4: the value strip's ⌫ — removes ANY slot (later links shift up); the only link ⇒ chain inactive, links reset to [1]
 }
 /// §3: the value a vertical drag of a count chip lands on — `startValue` stepped through the unit's ladder, 6 pt to begin and 12 pt a step (up increases), clamped to the ladder's ends. A pure function so the drag's arithmetic is tested, not the gesture.
 func euclideousRestartCountChipDragValue(startValue: Int, translationY: CGFloat, hit: Bool) -> Int {
@@ -429,6 +473,17 @@ private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: in
         fixSwitch(&l, rhythm: rhythm)   // a removal must not reactivate a switched-off chain
         links.remove(at: slot)          // at least one link always remains (the count > 1 guard)
         if rhythm { l.restartRhythmBars = links } else { l.restartMelodyPasses = links }
+    case .deleteLink(let rhythm, let slot):
+        // AMEND 1 §3.4: the value strip's ⌫ removes ANY slot (later links shift up); deleting the ONLY link makes the chain inactive and resets its stored links to [1].
+        var links = (rhythm ? l.restartRhythmChainResolved : l.restartMelodyChainResolved).links
+        guard slot >= 0, slot < links.count else { return }
+        if links.count <= 1 {
+            if rhythm { l.restartRhythmBars = [1]; l.restartRhythmOn = false } else { l.restartMelodyPasses = [1]; l.restartMelodyOn = false }
+        } else {
+            fixSwitch(&l, rhythm: rhythm)   // a deletion must not reactivate a switched-off chain
+            links.remove(at: slot)
+            if rhythm { l.restartRhythmBars = links } else { l.restartMelodyPasses = links }
+        }
     }
 }
 

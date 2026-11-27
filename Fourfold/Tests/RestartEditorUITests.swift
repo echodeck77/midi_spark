@@ -178,6 +178,52 @@ final class RestartEditorUITests: XCTestCase {
         XCTAssertTrue(euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: false, withRhythm: true).linked)
         XCTAssertFalse(euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: false, withRhythm: false).linked, "withRhythm off ⇒ split")
     }
+    func testValueStripLayout() {
+        // AMEND 1 §3.3: value buttons share the width less the ⌫ (28) and its gap (4), clamped [26, 40]; the ⌫ sits sp4 after the last value.
+        let wide = euclideousRestartValueStripLayout(width: 400, count: 6)
+        XCTAssertEqual(wide.buttons.count, 6); XCTAssertEqual(wide.buttonW, 40, "clamped to 40 on a wide strip"); XCTAssertFalse(wide.under26)
+        XCTAssertEqual(wide.backspace.width, 28); XCTAssertEqual(wide.backspace.height, 28)
+        XCTAssertEqual(wide.backspace.minX, wide.buttons.last!.maxX + 4, "⌫ is sp4 after the last value")
+        let mid = euclideousRestartValueStripLayout(width: 240, count: 6)   // (240 − 28 − 4 − 5·4)/6 = 31.33
+        XCTAssertEqual(mid.buttonW, 188.0 / 6.0, accuracy: 1e-6); XCTAssertFalse(mid.under26)
+        let narrow = euclideousRestartValueStripLayout(width: 150, count: 8)   // the share < 26
+        XCTAssertEqual(narrow.buttonW, 26); XCTAssertTrue(narrow.under26, "§3.3: a share below 26 is reported")
+    }
+    func testCardLayoutStripRow() {
+        // AMEND 1 §3.5: an open RHYTHM strip sits sp8 below the rhythm counts row and pushes the melody section down by 36 (28 + sp8).
+        let sz = CGSize(width: 360, height: 420)
+        let plain = euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: true, withRhythm: false)
+        let openR = euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: true, withRhythm: false, openStrip: .rhythm)
+        XCTAssertEqual(openR.stripRow.height, 28)
+        XCTAssertEqual(openR.stripRow.minX, plain.rhythm.countChips[0].minX, "the strip starts at the counts' x")
+        XCTAssertEqual(openR.stripRow.maxX, sz.width, "… to TW")
+        XCTAssertEqual(openR.stripRow.minY, plain.rhythm.countChips[0].maxY + 8, "sp8 below the counts row")
+        XCTAssertEqual(openR.melody.top, plain.melody.top + 36, "the melody section moved down by 28 + sp8")
+        let openM = euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: true, withRhythm: false, openStrip: .melody)
+        XCTAssertEqual(openM.melody.top, plain.melody.top, "the melody section is unmoved under a melody strip")
+        XCTAssertEqual(openM.stripRow.minY, plain.melody.countChips[0].maxY + 8)
+        XCTAssertGreaterThan(openM.contentBottom, plain.contentBottom, "a melody strip extends the content down")
+        XCTAssertEqual(plain.stripRow, .zero, "no strip row when none open")
+    }
+    func testDeleteLinkEdit() {
+        // AMEND 1 §3.4: ⌫ removes any slot (later links shift up).
+        var a = pinned(); a.restartMelodyPasses = [2, 1, 3]; a.restartMelodyOn = true
+        XCTAssertTrue(euclideousApplyRestartEdit(.deleteLink(rhythm: false, slot: 1), to: &a, lane: 0, pin: nil))
+        XCTAssertEqual(a.restartMelodyPasses, [2, 3], "deleting slot 1 of [2,1,3] gives [2,3]")
+        // deleting the only link makes the chain inactive and resets its stored links to [1]
+        var b = pinned(); b.restartRhythmBars = [6]; b.restartRhythmOn = true
+        XCTAssertTrue(euclideousApplyRestartEdit(.deleteLink(rhythm: true, slot: 0), to: &b, lane: 0, pin: nil))
+        XCTAssertEqual(b.restartRhythmBars, [1]); XCTAssertFalse(b.restartRhythmOnResolved, "the only-link delete deactivates the chain")
+    }
+    func testEnteringThreeCountsIsFourEdits() {
+        // AMEND 1 §7.4: from free — + (a 1), set it to 2, +, + → [2,1,1]; each is one edit (opening the strip between is UI, not an edit).
+        var l = pinned()
+        XCTAssertTrue(euclideousApplyRestartEdit(.addLink(rhythm: false), to: &l, lane: 0, pin: nil))
+        XCTAssertTrue(euclideousApplyRestartEdit(.setLink(rhythm: false, slot: 0, value: 2), to: &l, lane: 0, pin: nil))
+        XCTAssertTrue(euclideousApplyRestartEdit(.addLink(rhythm: false), to: &l, lane: 0, pin: nil))
+        XCTAssertTrue(euclideousApplyRestartEdit(.addLink(rhythm: false), to: &l, lane: 0, pin: nil))
+        XCTAssertEqual(l.restartMelodyPasses, [2, 1, 1])
+    }
     /// §3 interaction: the count-chip drag helper, the wrap, and "any FREE-row edit turns it live".
     func testTest31TheCountChipDragWrapAndFreeRowWaking() {
         // the drag helper: 6 pt to begin, 12 pt a step, up increases, clamped to the ladder's ends

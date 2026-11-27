@@ -1675,6 +1675,12 @@ struct EuclideousPage: View {
     @State private var euclidPulse: EuclidEditPulse? = nil
     @State private var euclidPulseGen: Int = 0
     @State private var restartEditorLane: Int? = nil
+    // AMEND 1 §3.2: which count chip (a lane card's or the ALL row's) has its value strip open — ONE per tab, ephemeral (never saved / undone; closed on a tab change and on any unit/source/+ edit).
+    @State private var resetsStripOpen: EuclideousResetsStripTarget? = nil
+    private func toggleResetsStrip(lane: Int, rhythm: Bool, slot: Int) {
+        let t = EuclideousResetsStripTarget.lane(lane: lane, rhythm: rhythm, slot: slot)
+        resetsStripOpen = (resetsStripOpen == t) ? nil : t   // §3.2: re-tapping the open chip closes it; tapping another opens it (closing the first)
+    }
     @State private var riffSourcePickerLane: Int? = nil   // RIFF SOURCE ferry (§6): the lane whose riff-source picker is open (one at a time, §6.10). Ephemeral, never saved.
     private func closeOtherRiffPickerOverlays(except idx: Int) { stepsPickerLane = nil; restartEditorLane = nil; notesPickerOpen.removeAll() }   // §6.1: the picker replaces the tile/walk/MOVE area; close the other card overlays
     @State private var restartEditorOpenedFromRhythm = true   // RESTART UNITS: which tile opened the editor (VoiceOver focus goes to its section, and back to the tile on close)
@@ -2499,7 +2505,7 @@ struct EuclideousPage: View {
         guard let change = euclideousPageTabTap(current: pageTab, tapped: tapped) else { return }
         if change.flips, let start = cardFlipStart, euclideousCardFlipIsLive(since: Date().timeIntervalSince(start), reduceMotion: reduceMotion) { return }
         // the STEPS picker, the restart editor and the NOTES picker belong to a card's tab: they close when the tab changes (the tab row used to close its own lane's; every card shows the one tab now)
-        stepsPickerLane = nil; restartEditorLane = nil; notesPickerOpen.removeAll(); riffSourcePickerLane = nil
+        stepsPickerLane = nil; restartEditorLane = nil; notesPickerOpen.removeAll(); riffSourcePickerLane = nil; resetsStripOpen = nil   // AMEND 1 §3.7: a tab change closes an open value strip
         flipFrom = pageTab
         pageTab = change.tab
         if !change.flips { cardFlipStart = nil }   // MIX ROWS: to or from MIX the view changes at once — a flip still in flight (front → front a moment ago) must not replay over it
@@ -4456,12 +4462,21 @@ struct EuclideousPage: View {
     /// the same `restartTile`, non-interactive now (§3.1). One `TimelineView` animates both tiles' sweeps + the MELODY strike bank; the controls are static. Every edit is the editor's `restartEdit` funnel, one undo step (§2.1); all four cards live at once (§2.2).
     private func resetsTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let settings = euclideousRestartSettings(line: line, lane: idx)
-        let V = euclideousResetsCardLayoutV3(size: CGSize(width: fullWidth, height: contentAreaH), rhythmActive: settings.rhythmActive, melodyActive: settings.melodyActive, withRhythm: settings.withRhythm)
+        // AMEND 1 §3: which of this lane's count chips (if any) has its value strip open, and which section it is under.
+        let openForLane: (rhythm: Bool, slot: Int)? = { if case let .lane(l, r, s) = resetsStripOpen, l == idx { return (r, s) }; return nil }()
+        let openSide: EuclideousResetsStripSide? = openForLane.map { $0.rhythm ? .rhythm : .melody }
+        let V = euclideousResetsCardLayoutV3(size: CGSize(width: fullWidth, height: contentAreaH), rhythmActive: settings.rhythmActive, melodyActive: settings.melodyActive, withRhythm: settings.withRhythm, openStrip: openSide)
         let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
         let cfg = riffWalkConfig(idx)
         let input = EuclideousRestartEditorInput(lane: idx, line: line, laneColors: laneAccents, size: CGSize(width: fullWidth, height: contentAreaH), scheduleSet: restartScheduleSet,
                                                  barBeats: clock.beatsPerBar, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: running)
+        // §3.4/§3.7: any unit/source/+ edit is "outside the strip" — close it (the strip's own value/⌫ taps close themselves).
+        let edit: (EuclideousRestartEdit, Bool) -> Void = { e, first in resetsStripOpen = nil; restartEdit(idx, e, first) }
         return ZStack(alignment: .topLeading) {
+            // §3.4: a tap on empty card space closes an open strip (below everything, only while one is open on this lane).
+            if openForLane != nil {
+                Color.clear.contentShape(Rectangle()).frame(width: fullWidth, height: contentAreaH, alignment: .topLeading).onTapGesture { resetsStripOpen = nil }
+            }
             // RESETS V3 §2: ONE tile, two block rows (passes above, riff cycles below) on a shared span. (The old two tiles + link-row ruler are hidden — `restartTile`'s ruler path / `restartTilesRow` stay compiled, unmounted.)
             TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !running || cfg == nil)) { tl in
                 let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
@@ -4474,20 +4489,34 @@ struct EuclideousPage: View {
             .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
             // §3.3/§3.4: the RHYTHM part (the only part when linked; labelled when split) then, split only, the MELODY part — declared RHYTHM → MELODY so VoiceOver reads them in order. No FREE pills; nothing dims (§3.2).
             EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: V.rhythm, rhythm: true, settings: settings, showsTimeline: false, showsName: false,
-                                         onEdit: { restartEdit(idx, $0, $1) },
+                                         onEdit: edit,
                                          runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .rhythm, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet),
-                                         cardMode: true, cardLabel: V.linked ? nil : "RHYTHM")
+                                         cardMode: true, cardLabel: V.linked ? nil : "RHYTHM",
+                                         openSlot: (openForLane?.rhythm == true) ? openForLane?.slot : nil,
+                                         onOpenToggle: { slot in toggleResetsStrip(lane: idx, rhythm: true, slot: slot) })
                 .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
             if !V.linked {
                 EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: V.melody, rhythm: false, settings: settings, showsTimeline: false, showsName: false,
-                                             onEdit: { restartEdit(idx, $0, $1) },
+                                             onEdit: edit,
                                              runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .melody, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet),
-                                             cardMode: true, cardLabel: "MELODY")
+                                             cardMode: true, cardLabel: "MELODY",
+                                             openSlot: (openForLane?.rhythm == false) ? openForLane?.slot : nil,
+                                             onOpenToggle: { slot in toggleResetsStrip(lane: idx, rhythm: false, slot: slot) })
                     .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
             }
             // §3.6: the WITH RHYTHM link button — on the rhythm/top controls row (shown even on a free linked lane, §3.4 departure, so it can be split without a count first).
-            resetsLinkButton(on: settings.withRhythm, accent: accent, button: V.linkButton, hit: V.linkButtonHit, onToggle: { restartEdit(idx, .withRhythm, true) })
+            resetsLinkButton(on: settings.withRhythm, accent: accent, button: V.linkButton, hit: V.linkButtonHit, onToggle: { resetsStripOpen = nil; restartEdit(idx, .withRhythm, true) })
                 .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
+            // AMEND 1 §3.5: the open value strip — its own row below the open chip's counts row (the layout shifted rows below it down). A value sets the chip and closes; ⌫ deletes the link and closes.
+            if let o = openForLane, V.stripRow != .zero {
+                let chain = o.rhythm ? settings.rhythm : settings.melody
+                let hitUnit = !o.rhythm && settings.melodyUnit == .hit
+                let cur = o.slot < chain.count ? Int(chain.link(o.slot)) : 0
+                EuclideousRestartValueStrip(frame: V.stripRow, values: euclideousRestartLinkLadder(hit: hitUnit).map { Int($0) }, current: cur,
+                                            onPick: { v in if v != cur { restartEdit(idx, .setLink(rhythm: o.rhythm, slot: o.slot, value: v), true) }; resetsStripOpen = nil },
+                                            onDelete: { restartEdit(idx, .deleteLink(rhythm: o.rhythm, slot: o.slot), true); resetsStripOpen = nil })
+                    .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
+            }
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
         .accessibilityElement(children: .contain)

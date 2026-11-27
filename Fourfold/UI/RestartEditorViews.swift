@@ -182,6 +182,82 @@ struct EuclideousCountChipView: View {
     }
 }
 
+/// AMEND 1 §3.1 — the value-strip count chip: a plain number, 36 × 28, fill #22252C, 13 pt heavy #F2F4F7. No chevrons, no drag, no long-press (those live on `EuclideousCountChipView` above, kept compiled but unmounted, §3.1). A tap opens/closes its value strip (§3.2); the open chip wears a 1.5 pt #F2F4F7 inner ring. The running fill (§3.9) stands.
+struct EuclideousValueChipView: View {
+    let value: Int
+    let frame: CGRect
+    let accent: Color
+    let dim: Double
+    let open: Bool
+    let label: String
+    let running: Bool
+    var progressFraction: Double? = nil
+    let onTap: () -> Void
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C))
+            Text("\(value)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+            if open { RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0xF2F4F7), lineWidth: 1.5) }   // §3.2: the open chip's ring
+        }
+        .frame(width: frame.width, height: frame.height)
+        .overlay(alignment: .bottomLeading) {   // §3.9: the running link's progress bar — kept from V3 (2 tall, r1, from x 4, 3 above the bottom)
+            if let f = progressFraction {
+                RoundedRectangle(cornerRadius: 1).fill(accent).frame(width: CGFloat(max(0, min(1, f))) * max(0, frame.width - 8), height: 2).padding(.leading, 4).padding(.bottom, 3)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .offset(x: frame.minX, y: frame.minY)
+        .opacity(dim)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label + (running ? ", playing" : "") + (open ? ", expanded" : ""))   // §6.1: buttons, no hint, not adjustable
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// AMEND 1 §3.3 — the value strip: the unit's valid values in order, then a ⌫. A value sets the open chip and closes (`onPick`); the current value closes unchanged (the caller compares); ⌫ deletes the chip (`onDelete`). Laid out by `euclideousRestartValueStripLayout`; reused by the lane cards (§3.5) and the ALL row (§3.6).
+struct EuclideousRestartValueStrip: View {
+    let frame: CGRect
+    let values: [Int]
+    let current: Int
+    let onPick: (Int) -> Void
+    let onDelete: () -> Void
+    var body: some View {
+        let L = euclideousRestartValueStripLayout(width: frame.width, count: values.count)
+        return ZStack(alignment: .topLeading) {
+            ForEach(Array(values.enumerated()), id: \.offset) { i, v in
+                let r = L.buttons[i]; let cur = v == current
+                Text("\(v)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: cur ? 0x0D0F14 : 0xAAB0BA))
+                    .frame(width: r.width, height: r.height)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: cur ? 0xE9ECEF : 0x22252C)))   // §3.3: the current value lit, the rest neutral
+                    .contentShape(Rectangle()).onTapGesture { onPick(v) }
+                    .offset(x: r.minX, y: r.minY)
+                    .accessibilityElement(children: .ignore).accessibilityLabel("\(v)").accessibilityAddTraits(cur ? [.isButton, .isSelected] : .isButton)   // §6.2
+            }
+            backspace(L.backspace)
+        }
+        .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+        .offset(x: frame.minX, y: frame.minY)
+    }
+    /// §3.3: the ⌫ — 28 × 28, the + box's look, a delete-left glyph (16 × 12, 2 pt stroke #AAB0BA).
+    private func backspace(_ b: CGRect) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C))
+            Canvas { ctx, size in
+                let w: CGFloat = 16, h: CGFloat = 12, ox = (size.width - w) / 2, oy = (size.height - h) / 2
+                var key = Path(); key.move(to: CGPoint(x: ox + 5, y: oy)); key.addLine(to: CGPoint(x: ox + w, y: oy)); key.addLine(to: CGPoint(x: ox + w, y: oy + h)); key.addLine(to: CGPoint(x: ox + 5, y: oy + h)); key.addLine(to: CGPoint(x: ox, y: oy + h / 2)); key.closeSubpath()
+                ctx.stroke(key, with: .color(Color(hex: 0xAAB0BA)), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
+                var cross = Path(); cross.move(to: CGPoint(x: ox + 8, y: oy + 3.5)); cross.addLine(to: CGPoint(x: ox + 13, y: oy + 8.5)); cross.move(to: CGPoint(x: ox + 13, y: oy + 3.5)); cross.addLine(to: CGPoint(x: ox + 8, y: oy + 8.5))
+                ctx.stroke(cross, with: .color(Color(hex: 0xAAB0BA)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            }
+            .frame(width: b.width, height: b.height)
+        }
+        .frame(width: b.width, height: b.height).contentShape(Rectangle()).onTapGesture { onDelete() }
+        .offset(x: b.minX, y: b.minY)
+        .accessibilityElement(children: .ignore).accessibilityLabel("Delete this count").accessibilityAddTraits(.isButton)   // §6.2
+    }
+}
+
 /// VoiceOver focus targets: a section of the editor (focus goes to the tapped tile's section when it opens), or a tile (focus goes back to it when it closes).
 enum EuclideousRestartFocus: Hashable {
     case section(rhythm: Bool)
@@ -287,6 +363,12 @@ struct EuclideousRestartSectionView: View {
     /// RESETS V3 §3: the card's linked/split controls. No FREE pill; the unit chips + source squares show ONLY while the chain is active (§3.5); nothing dims (§3.2); the − removes the only link, deactivating the chain (§3.8). `cardLabel` is the 8 pt split label ("RHYTHM"/"MELODY", nil in the linked view and the overlay editor).
     var cardMode: Bool = false
     var cardLabel: String? = nil
+    /// AMEND 1 §3.2: which of this section's count-chip slots has its value strip open (nil = none; the open chip wears a ring).
+    var openSlot: Int? = nil
+    /// AMEND 1 §3.2: a chip tap toggles its value strip open (nil ⇒ the overlay editor, where chips don't open a strip).
+    var onOpenToggle: ((Int) -> Void)? = nil
+    /// AMEND 1 §3.1: the − box is no longer drawn on the card or the overlay; the flag keeps `minusBox`/`cardMinusFrame` compiled, unmounted.
+    var showsMinusBox: Bool = false
 
     private var accent: Color { input.laneColors[input.lane % max(1, input.laneColors.count)] }
     private var chain: EuclideousRestartChain { rhythm ? settings.rhythm : settings.melody }
@@ -319,7 +401,7 @@ struct EuclideousRestartSectionView: View {
                 countChips(progressLink: nil, fraction: 0)
             }
             if chain.count < frames.countChips.count { addBox }   // AMEND 1 §1.1: + shows while a slot is free (6 on the live card, 4 in the overlay)
-            if (cardMode ? chain.count >= 1 : chain.count >= 2) { minusBox }   // §3.8: the card's − shows at 1+ links (removing the only one deactivates); the overlay keeps §4.8 (2+)
+            if showsMinusBox, (cardMode ? chain.count >= 1 : chain.count >= 2) { minusBox }   // AMEND 1 §3.1: the − box is no longer drawn (the value strip's ⌫ deletes a link); `minusBox`/`cardMinusFrame` stay compiled, unmounted
             if showsTimeline { timeline }
         }
         .accessibilityElement(children: .contain)
@@ -350,11 +432,13 @@ struct EuclideousRestartSectionView: View {
     private func countChips(progressLink: Int?, fraction: Double) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(Array(0..<max(0, chain.count)), id: \.self) { slot in
-                EuclideousCountChipView(value: Int(chain.link(slot)), frame: frames.countChips[slot], accent: accent, dim: dim, hit: isHitUnit,
+                // AMEND 1 §3.1: the plain value chip (tap opens its value strip). The old drag/chevron chip `EuclideousCountChipView` stays compiled, unmounted.
+                EuclideousValueChipView(value: Int(chain.link(slot)), frame: frames.countChips[slot], accent: accent, dim: dim,
+                                        open: slot == openSlot,
                                         label: EuclideousRestartEditorAX.link(rhythm: rhythm, slot: slot, value: Int(chain.link(slot)), unitWord: unitWord),
-                                        onDrag: { v, first in onEdit(.setLink(rhythm: rhythm, slot: slot, value: v), first) },   // §4.7: the half-tap step and the drag both land on .setLink (one undo step, clamped, no wrap)
-                                        onRemove: { if chain.count > 1 { onEdit(.removeLink(rhythm: rhythm, slot: slot), true) } },
-                                        progressFraction: slot == progressLink ? fraction : nil)
+                                        running: slot == progressLink,
+                                        progressFraction: slot == progressLink ? fraction : nil,
+                                        onTap: { onOpenToggle?(slot) })
             }
         }
     }
