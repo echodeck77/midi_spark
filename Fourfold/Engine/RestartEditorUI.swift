@@ -570,6 +570,11 @@ enum EuclideousRestartEditorAX {
     }
     static let linkHint = "Swipe up or down to change the length"   // §5: the count chip is adjustable
     static let removeLink = "Remove link"
+    /// AMEND 1 §6.1: the value-strip count chip reads "Every 2 bars" (the unit's words, RESTART UNITS 9.1) — no "link N", no hint, not adjustable.
+    static func every(value: Int, unitWord: String) -> String {
+        let plural = value == 1 ? unitWord : (unitWord == "pass" ? "passes" : unitWord + "s")
+        return "Every \(value) \(plural)"
+    }
     static func addLink(rhythm: Bool) -> String { "Add a \(rhythm ? "rhythm" : "melody") link" }
     static let tileHint = "Double-tap to edit"
 }

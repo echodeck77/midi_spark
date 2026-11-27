@@ -267,6 +267,19 @@ final class RestartEditorUITests: XCTestCase {
         let linked = euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: false, withRhythm: true)
         XCTAssertEqual(linked.rhythm.chips.first!.minX, 0, "linked controls from x 0")
     }
+    func testEveryVoiceOverLabel() {
+        // AMEND 1 §6.1: the chip reads "Every N <unit>", no "link N", no hint.
+        XCTAssertEqual(EuclideousRestartEditorAX.every(value: 2, unitWord: "bar"), "Every 2 bars")
+        XCTAssertEqual(EuclideousRestartEditorAX.every(value: 1, unitWord: "bar"), "Every 1 bar")
+        XCTAssertEqual(EuclideousRestartEditorAX.every(value: 3, unitWord: "pass"), "Every 3 passes")
+        XCTAssertEqual(EuclideousRestartEditorAX.every(value: 4, unitWord: "hit"), "Every 4 hits")
+    }
+    func testStripLadders() {
+        // AMEND 1 §7.5: the strip shows the unit's valid values — HIT 1…8, BAR/PASS {1,2,3,4,6,8}, ALL {1,2,3,4,6,8,12,16}.
+        XCTAssertEqual(euclideousRestartLinkLadder(hit: true).map { Int($0) }, [1, 2, 3, 4, 5, 6, 7, 8])
+        XCTAssertEqual(euclideousRestartLinkLadder(hit: false).map { Int($0) }, [1, 2, 3, 4, 6, 8])
+        XCTAssertEqual(euclideousAllChainLadder, [1, 2, 3, 4, 6, 8, 12, 16])
+    }
     /// §3 interaction: the count-chip drag helper, the wrap, and "any FREE-row edit turns it live".
     func testTest31TheCountChipDragWrapAndFreeRowWaking() {
         // the drag helper: 6 pt to begin, 12 pt a step, up increases, clamped to the ladder's ends

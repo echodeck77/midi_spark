@@ -435,7 +435,7 @@ struct EuclideousRestartSectionView: View {
                 // AMEND 1 §3.1: the plain value chip (tap opens its value strip). The old drag/chevron chip `EuclideousCountChipView` stays compiled, unmounted.
                 EuclideousValueChipView(value: Int(chain.link(slot)), frame: frames.countChips[slot], accent: accent, dim: dim,
                                         open: slot == openSlot,
-                                        label: EuclideousRestartEditorAX.link(rhythm: rhythm, slot: slot, value: Int(chain.link(slot)), unitWord: unitWord),
+                                        label: EuclideousRestartEditorAX.every(value: Int(chain.link(slot)), unitWord: unitWord),   // §6.1: "Every 2 bars"
                                         running: slot == progressLink,
                                         progressFraction: slot == progressLink ? fraction : nil,
                                         onTap: { onOpenToggle?(slot) })
@@ -648,7 +648,7 @@ struct EuclideousAllRowView: View {
             } else {
                 ForEach(Array(ints.enumerated()), id: \.offset) { i, v in
                     EuclideousValueChipView(value: v, frame: L.chips[i], accent: Color(hex: 0xDFE3EA), dim: 1, open: openSlot == i,
-                                            label: "Every \(v) \(v == 1 ? "bar" : "bars")", running: false, progressFraction: nil,
+                                            label: EuclideousRestartEditorAX.every(value: v, unitWord: "bar"), running: false, progressFraction: nil,   // §6.1
                                             onTap: { onOpenToggle(i) })
                 }
                 if let a = L.addBox { addBox(a) }
