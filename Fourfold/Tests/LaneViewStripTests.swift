@@ -128,7 +128,7 @@ final class LaneViewStripTests: XCTestCase {
     // MARK: 5. the page's one tab
 
     func testTheTabIsOneValueAndTappingTheSelectedSegmentChangesNothing() {
-        XCTAssertEqual(EuclideousPageTab.opening, .rhythm, "the page opens on RHYTHM and never on MIX"); XCTAssertNotEqual(EuclideousPageTab.opening, .mix)
+        XCTAssertEqual(EuclideousPageTab.opening, .pool, "the page opens on the MODE tab (Paul 2026-11-27) and never on MIX"); XCTAssertNotEqual(EuclideousPageTab.opening, .mix)
         for t in EuclideousPageTab.allCases { XCTAssertNil(euclideousPageTabTap(current: t, tapped: t), "\(t): tapping the selected segment does nothing") }
         XCTAssertEqual(EuclideousPageTab.allCases.count, 9)
         XCTAssertEqual(EuclideousPageTab.riff.front, .riff); XCTAssertNil(EuclideousPageTab.mix.front); XCTAssertEqual(EuclideousPageTab.resets.front, .resets); XCTAssertEqual(EuclideousPageTab.alt.front, .alt)

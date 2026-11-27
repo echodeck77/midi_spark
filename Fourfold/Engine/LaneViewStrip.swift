@@ -13,8 +13,8 @@ import Foundation
 /// INPUTS · EUCLID · RIFF · STACK · RESETS · ANSWER · MIX (display order in `euclideousPageTabOrder`; RESETS moved after RIFF + STACK, Paul 2026-11-19). The raw values are coupled with `EuclideousTabKind` and the page's `EuclideousLaneTab` — reorder all three together. RESETS (2026-11-11) = rawValue 5 in all three; MIX moved to 6 so it stays the one tab with no `front` (the backs).
 enum EuclideousPageTab: Int, CaseIterable, Equatable {
     case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, resets = 5, mix = 6, fill = 7, alt = 8   // FILL (2026-11-13) rawValue 7; ALT (2026-11-14) rawValue 8 in all three coupled enums (mix stays 6 as the only front-less tab); display position is set by `euclideousPageTabOrder`
-    /// The page opens on RHYTHM, never on MIX (the tab is not saved, so every open is this).
-    static let opening: EuclideousPageTab = .rhythm
+    /// The page opens on the MODE tab (`.pool`), never on MIX (the tab is not saved, so every open is this). (Paul 2026-11-27: was `.rhythm`.)
+    static let opening: EuclideousPageTab = .pool
     /// The front tab this page tab shows on the cards; nil for MIX (the backs). RESETS is a front tab (rawValue 5 → `EuclideousTabKind.resets`).
     var front: EuclideousTabKind? { self == .mix ? nil : EuclideousTabKind(rawValue: rawValue) }
     var isMix: Bool { self == .mix }
