@@ -646,20 +646,7 @@ struct EuclideousAllRowView: View {
                 ForEach(Array(euclideousAllRowSlotValues.enumerated()), id: \.offset) { i, n in slotButton(n, L.slots[i]) }
                 freeValue(L.value)
             } else {
-                ForEach(Array(ints.enumerated()), id: \.offset) { i, v in
-                    EuclideousValueChipView(value: v, frame: L.chips[i], accent: Color(hex: 0xDFE3EA), dim: 1, open: openSlot == i,
-                                            label: EuclideousRestartEditorAX.every(value: v, unitWord: "bar"), running: false, progressFraction: nil,   // §6.1
-                                            onTap: { onOpenToggle(i) })
-                }
-                if let a = L.addBox { addBox(a) }
-                if let s = openSlot, s < ints.count, L.ruler.width > 0 {
-                    // §3.6: the value strip takes the ruler's place and width
-                    EuclideousRestartValueStrip(frame: L.ruler, values: euclideousAllChainLadder, current: ints[s],
-                                                onPick: { v in if v != ints[s] { var c = ints; c[s] = v; onSet(c.map { UInt8($0) }) }; onCloseStrip() },
-                                                onDelete: { var c = ints; c.remove(at: s); onSet(c.map { UInt8($0) }); onCloseStrip() })
-                } else {
-                    rulerAndValue(ints, ruler: L.ruler, value: L.value)
-                }
+                setContent(ints, L: L)
             }
         }
         .frame(width: rect.width, height: rect.height, alignment: .topLeading)
@@ -690,7 +677,12 @@ struct EuclideousAllRowView: View {
         Image(systemName: "plus").font(.system(size: 12, weight: .heavy)).foregroundColor(Color(hex: 0xAAB0BA))
             .frame(width: r.width, height: r.height)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
-            .contentShape(Rectangle()).onTapGesture { onSet(chain + [4]) }   // §4.2: a new link defaults to 4 bars
+            .contentShape(Rectangle()).onTapGesture {   // Paul 2026-11-27: a new link defaults to the PREVIOUS value (was 4) and opens its value strip so the picker is visible (⌫ cancels the add)
+                let prev = chain.last.map { Int($0) } ?? 4
+                let newChain = chain + [UInt8(prev)]
+                onSet(newChain)
+                onOpenToggle(newChain.count - 1)
+            }
             .offset(x: r.minX, y: r.minY)
             .accessibilityElement(children: .ignore).accessibilityLabel("Add a link").accessibilityAddTraits(.isButton)
     }
@@ -700,18 +692,39 @@ struct EuclideousAllRowView: View {
             .frame(width: r.width, height: r.height, alignment: .trailing).offset(x: r.minX, y: r.minY)
             .accessibilityElement(children: .ignore).accessibilityLabel("All lanes free")
     }
-    // §4.3/§4.4: the ruler (one block per bar of ALL's current link + the playhead) and the "N OF M" value
-    @ViewBuilder private func rulerAndValue(_ ints: [Int], ruler: CGRect, value: CGRect) -> some View {
+    // §4.3/§4.4 + Paul 2026-11-27: the SET row inside ONE TimelineView so the PLAYING count's chip highlights (running fill, like the lane cards) — the chips, the +, then the ruler + "N OF M" (or the open value strip in the ruler's place).
+    @ViewBuilder private func setContent(_ ints: [Int], L: EuclideousAllRowLayout) -> some View {
         TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !running)) { tl in
             let beat = running ? beatAt(tl.date) : 0
             let now = euclideousAllRowNowLink(beat: beat, barBeats: barBeats, chain: chain) ?? (link: 0, barInLink: 1, linkBars: max(1, ints.first ?? 1))
             let linkStart = euclideousAllRestartAtOrBefore(beat: beat, barBeats: barBeats, chain: chain)
             let frac = (running && barBeats > 0 && now.linkBars > 0) ? max(0, min(1, (beat - linkStart) / (Double(now.linkBars) * barBeats))) : 0
             ZStack(alignment: .topLeading) {
-                allRuler(bars: now.linkBars, frac: frac, frame: ruler)
-                nmValue(n: now.barInLink, m: now.linkBars, frame: value)
+                ForEach(Array(ints.enumerated()), id: \.offset) { i, v in
+                    let playing = running && now.link == i
+                    EuclideousValueChipView(value: v, frame: L.chips[i], accent: Color(hex: 0xDFE3EA), dim: 1, open: openSlot == i,
+                                            label: EuclideousRestartEditorAX.every(value: v, unitWord: "bar"), running: playing,
+                                            progressFraction: playing ? frac : nil,   // the playing count's running fill (the lane-card style)
+                                            onTap: { onOpenToggle(i) })
+                }
+                if let a = L.addBox { addBox(a) }
+                if let s = openSlot, s < ints.count, L.ruler.width > 0 {
+                    allStrip(s, ints: ints, ruler: L.ruler)
+                } else {
+                    allRuler(bars: now.linkBars, frac: frac, frame: L.ruler)
+                    nmValue(n: now.barInLink, m: now.linkBars, frame: L.value)
+                }
             }
         }
+    }
+    /// §3.6 + Paul 2026-11-27: the open value strip on the ALL row — 28 tall, vertically CENTRED in the row and RIGHT-aligned to the ruler's trailing edge (the ruler frame is only 10 tall, which left it bottom-left).
+    private func allStrip(_ s: Int, ints: [Int], ruler: CGRect) -> some View {
+        let probe = euclideousRestartValueStripLayout(width: ruler.width, count: euclideousAllChainLadder.count)
+        let w = min(ruler.width, probe.backspace.maxX)
+        let frame = CGRect(x: ruler.maxX - w, y: (rect.height - 28) / 2, width: w, height: 28)
+        return EuclideousRestartValueStrip(frame: frame, values: euclideousAllChainLadder, current: ints[s],
+                                           onPick: { v in if v != ints[s] { var c = ints; c[s] = v; onSet(c.map { UInt8($0) }) }; onCloseStrip() },
+                                           onDelete: { var c = ints; c.remove(at: s); onSet(c.map { UInt8($0) }); onCloseStrip() })
     }
     private func allRuler(bars: Int, frac: Double, frame r: CGRect) -> some View {
         Canvas { ctx, size in
