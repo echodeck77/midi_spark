@@ -1681,6 +1681,8 @@ struct EuclideousPage: View {
         let t = EuclideousResetsStripTarget.lane(lane: lane, rhythm: rhythm, slot: slot)
         resetsStripOpen = (resetsStripOpen == t) ? nil : t   // §3.2: re-tapping the open chip closes it; tapping another opens it (closing the first)
     }
+    private var resetsAllOpenSlot: Int? { if case let .all(s) = resetsStripOpen { return s }; return nil }
+    private func toggleResetsAllStrip(slot: Int) { let t = EuclideousResetsStripTarget.all(slot: slot); resetsStripOpen = (resetsStripOpen == t) ? nil : t }
     @State private var riffSourcePickerLane: Int? = nil   // RIFF SOURCE ferry (§6): the lane whose riff-source picker is open (one at a time, §6.10). Ephemeral, never saved.
     private func closeOtherRiffPickerOverlays(except idx: Int) { stepsPickerLane = nil; restartEditorLane = nil; notesPickerOpen.removeAll() }   // §6.1: the picker replaces the tile/walk/MOVE area; close the other card overlays
     @State private var restartEditorOpenedFromRhythm = true   // RESTART UNITS: which tile opened the editor (VoiceOver focus goes to its section, and back to the tile on close)
@@ -2057,7 +2059,8 @@ struct EuclideousPage: View {
             if pageTab == .resets, !mixPanelShows, page.allRowRect != .zero {
                 EuclideousStackBreak { AnyView(EuclideousAllRowView(chain: euclideousAllChain, rect: page.allRowRect, barBeats: clock.beatsPerBar,
                                                                     beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: clock.playing, reduceMotion: reduceMotion,
-                                                                    onSet: { onSetAllChain($0) })) }
+                                                                    onSet: { onSetAllChain($0) },
+                                                                    openSlot: resetsAllOpenSlot, onOpenToggle: { toggleResetsAllStrip(slot: $0) }, onCloseStrip: { resetsStripOpen = nil })) }
             }
             // HARMONY (INPUTS + HARMONY ferry 2026-11-06) §4.1: a full-size page over the four lane cards' block (it replaced the CHORDS page and the SOURCES panel) — the header, tab strip, riff panel and lower-right panel stay visible and live.
             if harmonyOpen {
@@ -2119,7 +2122,8 @@ struct EuclideousPage: View {
             if pageTab == .resets, L.allRowRect != .zero {
                 EuclideousStackBreak { AnyView(EuclideousAllRowView(chain: euclideousAllChain, rect: L.allRowRect, barBeats: clock.beatsPerBar,
                                                                     beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: clock.playing, reduceMotion: reduceMotion,
-                                                                    onSet: { onSetAllChain($0) })) }
+                                                                    onSet: { onSetAllChain($0) },
+                                                                    openSlot: resetsAllOpenSlot, onOpenToggle: { toggleResetsAllStrip(slot: $0) }, onCloseStrip: { resetsStripOpen = nil })) }
             }
             EuclideousStackBreak { AnyView(compactLaneStripsPanel(L)) }.offset(x: L.stripsPanel.minX, y: L.stripsPanel.minY)
             if !coverLeft {

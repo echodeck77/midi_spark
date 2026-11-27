@@ -169,6 +169,48 @@ func euclideousAllRowNowLink(beat: Double, barBeats: Double, chain: [UInt8]) -> 
     return (last, Int(chain[last]), Int(chain[last]))
 }
 
+// MARK: - RESETS V3 AMEND 1 §4 — the ALL row's layout (ALL label · free slots OR chips + + + ruler · value)
+
+/// §4.2: the eight ALL free-row length slots and the set-row chip ladder — the same host-bar values.
+let euclideousAllRowSlotValues: [Int] = [1, 2, 3, 4, 6, 8, 12, 16]
+
+struct EuclideousAllRowLayout: Equatable {
+    var allLabel: CGRect        // §4.1 "ALL" (restart glyph + text), 52 wide
+    var free: Bool              // allChain empty
+    var slots: [CGRect]         // §4.2 free: eight length slots filling to the value
+    var chips: [CGRect]         // §4.1 set: the count chips (36 wide)
+    var addBox: CGRect?         // §4.1 set: the + (28 wide), shown while count < maxLinks
+    var ruler: CGRect           // §4.3 set: fills from + (or the last chip at six) to the value (10 tall)
+    var value: CGRect           // §4.2/§4.4 the value readout (FREE / N OF M), 64 wide, trailing
+    var rulerUnder80: Bool      // §4.3: the ruler fell under its 80 pt minimum (report)
+}
+/// AMEND 1 §4.1 — the ALL row's frames in a `width` × `height` rect. sp6 between groups, sp4 within; "ALL" 52 wide leading, the value 64 wide trailing, a 12 pt pad each side. `count` = allChain links (0 ⇒ free). The ruler fills the gap between the + (or the last chip at six links) and the value, so it grows/shrinks by 40 pt per chip while the + is shown (§4.3).
+func euclideousAllRowLayout(width: CGFloat, height: CGFloat, count: Int) -> EuclideousAllRowLayout {
+    let pad: CGFloat = 12, sp6: CGFloat = 6, sp4: CGFloat = 4
+    let allW: CGFloat = 52, valueW: CGFloat = 64, chipW: CGFloat = 36, addW: CGFloat = 28, ctrlH: CGFloat = 28, rulerH: CGFloat = 10
+    func centred(_ x: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect { CGRect(x: x, y: (height - h) / 2, width: w, height: h) }
+    let allLabel = CGRect(x: pad, y: 0, width: allW, height: height)
+    let value = CGRect(x: width - pad - valueW, y: 0, width: valueW, height: height)
+    let midStart = pad + allW + sp6
+    let midEnd = value.minX - sp6
+    if count <= 0 {
+        let n = euclideousAllRowSlotValues.count
+        let slotW = max(0, (midEnd - midStart - CGFloat(n - 1) * sp4) / CGFloat(n))
+        let slots = (0..<n).map { centred(midStart + CGFloat($0) * (slotW + sp4), slotW, ctrlH) }
+        return EuclideousAllRowLayout(allLabel: allLabel, free: true, slots: slots, chips: [], addBox: nil, ruler: .zero, value: value, rulerUnder80: false)
+    }
+    let chips = (0..<count).map { centred(midStart + CGFloat($0) * (chipW + sp4), chipW, ctrlH) }
+    let lastChipMaxX = chips.last?.maxX ?? midStart
+    var addBox: CGRect? = nil
+    var rulerStart = lastChipMaxX + sp4
+    if count < EuclideousRestartChain.maxLinks {
+        addBox = centred(rulerStart, addW, ctrlH)   // §4.1: + sp4 after the last chip
+        rulerStart += addW + sp4                     // §4.1: sp4 after the +, then the ruler
+    }
+    let rulerW = max(0, midEnd - rulerStart)
+    return EuclideousAllRowLayout(allLabel: allLabel, free: false, slots: [], chips: chips, addBox: addBox, ruler: CGRect(x: rulerStart, y: (height - rulerH) / 2, width: rulerW, height: rulerH), value: value, rulerUnder80: rulerW < 80)
+}
+
 /// §5.3 — the tile's VoiceOver: "Rhythm, 8 of 16 steps; melody, 3 of 8 notes" (steps for ADV STEP melody), with ", free" after a free part.
 func euclideousResetsTileVoiceOver(rhythmNM: (n: Int, m: Int)?, rhythmSet: Bool, melodyNM: (n: Int, m: Int)?, melodySet: Bool, advStep: Bool) -> String {
     var r = "Rhythm"

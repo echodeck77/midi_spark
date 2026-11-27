@@ -224,6 +224,29 @@ final class RestartEditorUITests: XCTestCase {
         XCTAssertTrue(euclideousApplyRestartEdit(.addLink(rhythm: false), to: &l, lane: 0, pin: nil))
         XCTAssertEqual(l.restartMelodyPasses, [2, 1, 1])
     }
+    func testAllRowLayout() {
+        let W: CGFloat = 600, H: CGFloat = 46
+        // §4.2 free: eight slots fill between "ALL" and the value; a 64 pt value sits trailing; no ruler, no chips.
+        let free = euclideousAllRowLayout(width: W, height: H, count: 0)
+        XCTAssertTrue(free.free); XCTAssertEqual(free.slots.count, 8); XCTAssertTrue(free.chips.isEmpty); XCTAssertEqual(free.ruler, .zero); XCTAssertNil(free.addBox)
+        XCTAssertEqual(free.value.maxX, W - 12, accuracy: 1e-6); XCTAssertEqual(free.value.width, 64)
+        XCTAssertEqual(free.slots.first!.minX, 12 + 52 + 6, accuracy: 1e-6, "slots start after ALL (52) + sp6")
+        XCTAssertEqual(free.slots.last!.maxX, free.value.minX - 6, accuracy: 1e-6, "… filling to the value − sp6")
+        // §4.3 set: the ruler fills to the value and shrinks by 40 (a chip's 36 + sp4) per added chip while the + is shown.
+        let one = euclideousAllRowLayout(width: W, height: H, count: 1), two = euclideousAllRowLayout(width: W, height: H, count: 2)
+        XCTAssertFalse(one.free); XCTAssertEqual(one.chips.count, 1); XCTAssertNotNil(one.addBox); XCTAssertEqual(one.ruler.height, 10)
+        XCTAssertEqual(one.ruler.maxX, one.value.minX - 6, accuracy: 1e-6, "the ruler fills to the value − sp6")
+        XCTAssertEqual(one.ruler.width - two.ruler.width, 40, accuracy: 1e-6, "one more chip ⇒ 40 narrower")
+        for c in 1..<5 {
+            let a = euclideousAllRowLayout(width: W, height: H, count: c), b = euclideousAllRowLayout(width: W, height: H, count: c + 1)
+            XCTAssertEqual(a.ruler.width - b.ruler.width, 40, accuracy: 1e-6, "\(c)→\(c+1) shrinks 40")
+        }
+        let six = euclideousAllRowLayout(width: W, height: H, count: 6)
+        XCTAssertNil(six.addBox, "no + at six links"); XCTAssertGreaterThan(six.ruler.width, 0); XCTAssertEqual(six.ruler.maxX, six.value.minX - 6, accuracy: 1e-6, "the ruler still fills to the value at six")
+        // §4.3 report: a narrow row drops the ruler below its 80 pt minimum
+        let narrow = euclideousAllRowLayout(width: 360, height: H, count: 6)
+        XCTAssertEqual(narrow.rulerUnder80, narrow.ruler.width < 80)
+    }
     /// §3 interaction: the count-chip drag helper, the wrap, and "any FREE-row edit turns it live".
     func testTest31TheCountChipDragWrapAndFreeRowWaking() {
         // the drag helper: 6 pt to begin, 12 pt a step, up increases, clamped to the ladder's ends

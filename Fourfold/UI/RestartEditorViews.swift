@@ -622,6 +622,7 @@ struct EuclideousAllCountChip: View {
 }
 
 /// §4: the ALL row — "ALL", the count chips (+ a `+` to add; long-press a chip to remove), "BARS", and the live "bar N of M" of the running link with a mini ruler. Empty chain = just "ALL" and `+`. One undo step per edit (the page funnel). Visuals device-owed.
+/// AMEND 1 §4 — the ALL row. FREE (empty chain): "ALL", eight length slots filling the row, then "FREE"; a slot tap sets the chain. SET: "ALL", the count chips + the +, a ruler filling to the value, then "N OF M". Chips are the value-strip chips (§3.1); a chip's strip takes the ruler's place (§3.6). Layout: `euclideousAllRowLayout`; `EuclideousAllCountChip` + the old mini-ruler are retired (kept compiled, unmounted).
 struct EuclideousAllRowView: View {
     let chain: [UInt8]
     let rect: CGRect
@@ -630,67 +631,112 @@ struct EuclideousAllRowView: View {
     let running: Bool
     let reduceMotion: Bool
     let onSet: ([UInt8]) -> Void
-
-    private let chipW: CGFloat = 40, chipH: CGFloat = 28
+    var openSlot: Int? = nil                     // AMEND 1 §3.2: the ALL chip whose value strip is open (nil = none)
+    var onOpenToggle: (Int) -> Void = { _ in }   // §3.2: a chip tap toggles its strip
+    var onCloseStrip: () -> Void = {}            // §3.4: close after a value / ⌫
 
     var body: some View {
         let ints = chain.map { Int($0) }
-        return ZStack(alignment: .leading) {
+        let L = euclideousAllRowLayout(width: rect.width, height: rect.height, count: ints.count)
+        return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x16181E))
             RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0x24262C), lineWidth: 1)
-            HStack(spacing: 8) {
-                Text("ALL").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(Color(hex: 0xAAB0BA))
+            allLabel(L.allLabel)
+            if L.free {
+                ForEach(Array(euclideousAllRowSlotValues.enumerated()), id: \.offset) { i, n in slotButton(n, L.slots[i]) }
+                freeValue(L.value)
+            } else {
                 ForEach(Array(ints.enumerated()), id: \.offset) { i, v in
-                    EuclideousAllCountChip(value: v, size: CGSize(width: chipW, height: chipH), progressFraction: nil,
-                                           onChange: { nv in var c = ints; c[i] = nv; onSet(c.map { UInt8($0) }) },
-                                           onRemove: { var c = ints; c.remove(at: i); onSet(c.map { UInt8($0) }) })
+                    EuclideousValueChipView(value: v, frame: L.chips[i], accent: Color(hex: 0xDFE3EA), dim: 1, open: openSlot == i,
+                                            label: "Every \(v) \(v == 1 ? "bar" : "bars")", running: false, progressFraction: nil,
+                                            onTap: { onOpenToggle(i) })
                 }
-                if ints.count < EuclideousRestartChain.maxLinks { addBox }   // AMEND 1 §1.1: up to six ALL links (was four)
-                if !ints.isEmpty {
-                    Text("BARS").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.8).foregroundColor(Color(hex: 0x6B707A))
-                    nowReadout(ints)
+                if let a = L.addBox { addBox(a) }
+                if let s = openSlot, s < ints.count, L.ruler.width > 0 {
+                    // §3.6: the value strip takes the ruler's place and width
+                    EuclideousRestartValueStrip(frame: L.ruler, values: euclideousAllChainLadder, current: ints[s],
+                                                onPick: { v in if v != ints[s] { var c = ints; c[s] = v; onSet(c.map { UInt8($0) }) }; onCloseStrip() },
+                                                onDelete: { var c = ints; c.remove(at: s); onSet(c.map { UInt8($0) }); onCloseStrip() })
+                } else {
+                    rulerAndValue(ints, ruler: L.ruler, value: L.value)
                 }
-                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
         }
-        .frame(width: rect.width, height: rect.height, alignment: .leading)
+        .frame(width: rect.width, height: rect.height, alignment: .topLeading)
         .offset(x: rect.minX, y: rect.minY)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("All reset")
     }
 
-    private var addBox: some View {
-        Button { onSet(chain + [4]) } label: {   // §4.2: a new link defaults to 4 bars
-            Image(systemName: "plus").font(.system(size: 12, weight: .heavy)).foregroundColor(Color(hex: 0xAAB0BA))
-                .frame(width: 28, height: chipH)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
+    // §4.1: the restart glyph + "ALL" (the glyph reuses arrow.clockwise — exact mark device-owed)
+    private func allLabel(_ r: CGRect) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .heavy)).foregroundColor(Color(hex: 0xAAB0BA))
+            Text("ALL").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(Color(hex: 0xAAB0BA))
         }
-        .accessibilityLabel(chain.isEmpty ? "Add an ALL reset" : "Add a link")
+        .frame(width: r.width, height: r.height, alignment: .leading).offset(x: r.minX, y: r.minY).accessibilityHidden(true)
     }
-
-    /// §4.4/§4.5: the running link's "bar N of M" and a mini ruler of its bars (the current bar filled by the elapsed fraction). Frozen at bar 1 of the first link when stopped.
-    @ViewBuilder private func nowReadout(_ ints: [Int]) -> some View {
+    // §4.2: a free length slot — a tap sets allChain to [n] (one undo step; the row turns to SET)
+    private func slotButton(_ n: Int, _ r: CGRect) -> some View {
+        Text("\(n)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
+            .frame(width: r.width, height: r.height)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C)))
+            .contentShape(Rectangle()).onTapGesture { onSet([UInt8(n)]) }
+            .offset(x: r.minX, y: r.minY)
+            .accessibilityElement(children: .ignore).accessibilityLabel("Reset all lanes every \(n) \(n == 1 ? "bar" : "bars")").accessibilityAddTraits(.isButton)
+    }
+    // §4.1: the + box — appends a 4-bar link (default), shown while count < maxLinks
+    private func addBox(_ r: CGRect) -> some View {
+        Image(systemName: "plus").font(.system(size: 12, weight: .heavy)).foregroundColor(Color(hex: 0xAAB0BA))
+            .frame(width: r.width, height: r.height)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
+            .contentShape(Rectangle()).onTapGesture { onSet(chain + [4]) }   // §4.2: a new link defaults to 4 bars
+            .offset(x: r.minX, y: r.minY)
+            .accessibilityElement(children: .ignore).accessibilityLabel("Add a link").accessibilityAddTraits(.isButton)
+    }
+    // §4.2: the FREE value — "FREE", trailing
+    private func freeValue(_ r: CGRect) -> some View {
+        Text("FREE").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            .frame(width: r.width, height: r.height, alignment: .trailing).offset(x: r.minX, y: r.minY)
+            .accessibilityElement(children: .ignore).accessibilityLabel("All lanes free")
+    }
+    // §4.3/§4.4: the ruler (one block per bar of ALL's current link + the playhead) and the "N OF M" value
+    @ViewBuilder private func rulerAndValue(_ ints: [Int], ruler: CGRect, value: CGRect) -> some View {
         TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !running)) { tl in
             let beat = running ? beatAt(tl.date) : 0
             let now = euclideousAllRowNowLink(beat: beat, barBeats: barBeats, chain: chain) ?? (link: 0, barInLink: 1, linkBars: max(1, ints.first ?? 1))
-            let frac = (running && barBeats > 0) ? max(0, min(1, beat.truncatingRemainder(dividingBy: barBeats) / barBeats)) : 0
-            HStack(spacing: 6) {
-                HStack(spacing: 2) {   // a cell per bar of the current link; the current bar fills by the elapsed fraction
-                    ForEach(Array(0..<min(now.linkBars, 16)), id: \.self) { b in
-                        let state = b < now.barInLink - 1 ? 1.0 : (b == now.barInLink - 1 ? frac : 0.0)
-                        ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 1).fill(Color(hex: 0x2A2D34))
-                            RoundedRectangle(cornerRadius: 1).fill(Color(hex: 0xDFE3EA)).frame(width: 7 * CGFloat(max(0, min(1, state))))
-                        }
-                        .frame(width: 7, height: 10)
-                    }
-                }
-                Text("\(now.barInLink)/\(now.linkBars)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+            let linkStart = euclideousAllRestartAtOrBefore(beat: beat, barBeats: barBeats, chain: chain)
+            let frac = (running && barBeats > 0 && now.linkBars > 0) ? max(0, min(1, (beat - linkStart) / (Double(now.linkBars) * barBeats))) : 0
+            ZStack(alignment: .topLeading) {
+                allRuler(bars: now.linkBars, frac: frac, frame: ruler)
+                nmValue(n: now.barInLink, m: now.linkBars, frame: value)
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(running ? "Bar \(now.barInLink) of \(now.linkBars)" : "")
-            .accessibilityHidden(!running)
         }
+    }
+    private func allRuler(bars: Int, frac: Double, frame r: CGRect) -> some View {
+        Canvas { ctx, size in
+            let track = Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 3)
+            ctx.fill(track, with: .color(Color(hex: 0x2A2D34)))
+            var clip = ctx; clip.clip(to: track)
+            let n = max(1, bars), bw = size.width / CGFloat(n)
+            for b in 0..<n {   // §4.3: one block per bar, #C4C9D1 r2, the bar's width less 2
+                clip.fill(Path(roundedRect: CGRect(x: CGFloat(b) * bw, y: 0, width: max(0.5, bw - 2), height: size.height), cornerRadius: 2), with: .color(Color(hex: 0xC4C9D1)))
+            }
+            if running {   // §2.9 still-to-come + playhead (2 wide)
+                let px = min(max(CGFloat(frac) * size.width, 0), size.width)
+                if px < size.width - 0.5 { ctx.fill(Path(CGRect(x: px, y: 0, width: size.width - px, height: size.height)), with: .color(Color(hex: 0x121318).opacity(0.5))) }
+                ctx.fill(Path(roundedRect: CGRect(x: px - 1, y: 0, width: 2, height: size.height), cornerRadius: 1), with: .color(Color(hex: 0xF2F4F7)))
+            }
+        }
+        .frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY).accessibilityHidden(true)
+    }
+    private func nmValue(n: Int, m: Int, frame r: CGRect) -> some View {
+        HStack(spacing: 0) {   // §4.4: "N OF M" (not "N/M")
+            Text("\(n)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+            Text("OF").font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(0.08 * 7).foregroundColor(Color(hex: 0x8A909A)).padding(.horizontal, 3)
+            Text("\(m)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+        }
+        .lineLimit(1).frame(width: r.width, height: r.height, alignment: .trailing).offset(x: r.minX, y: r.minY)
+        .accessibilityElement(children: .ignore).accessibilityLabel(running ? "Bar \(n) of \(m)" : "")
     }
 }
