@@ -12,17 +12,19 @@ final class RestartChainsTests: XCTestCase {
 
     // MARK: - EuclideousRestartChain (pack/unpack)
 
-    func testChainFromValidatesLinksDropsInvalidAndCapsAtFour() {
+    func testChainFromValidatesLinksDropsInvalidAndCapsAtSix() {
         let c = EuclideousRestartChain.from([2, 1, 1])
         XCTAssertEqual(c.count, 3)
         XCTAssertEqual(c.link(0), 2); XCTAssertEqual(c.link(1), 1); XCTAssertEqual(c.link(2), 1)
         XCTAssertEqual(c.total, 4)
         XCTAssertEqual(c.runningTotal(0), 0); XCTAssertEqual(c.runningTotal(1), 2); XCTAssertEqual(c.runningTotal(2), 3)
         XCTAssertFalse(c.isFree)
-        // invalid values (0, 5, 7, 9) dropped; capped at 4 links
+        // invalid values (0, 5, 7) dropped; capped at 6 links (AMEND 1 §1.1, was four)
         let dirty = EuclideousRestartChain.from([1, 0, 5, 2, 7, 3, 4, 6, 8])
-        XCTAssertEqual(dirty.count, 4)
-        XCTAssertEqual(dirty.links, [1, 2, 3, 4])
+        XCTAssertEqual(dirty.count, 6)
+        XCTAssertEqual(dirty.links, [1, 2, 3, 4, 6, 8])
+        // a 7th valid link is dropped at the cap
+        XCTAssertEqual(EuclideousRestartChain.from([1, 2, 3, 4, 6, 8, 1, 2]).links, [1, 2, 3, 4, 6, 8])
     }
     func testEmptyArrayIsFreeAndRoundTripsThroughLinks() {
         XCTAssertTrue(EuclideousRestartChain.free.isFree)
@@ -30,6 +32,21 @@ final class RestartChainsTests: XCTestCase {
         XCTAssertEqual(EuclideousRestartChain.from([]).links, [])
         let c = EuclideousRestartChain.from([2, 1, 1])
         XCTAssertEqual(EuclideousRestartChain.from(c.links).packed, c.packed, "pack -> links -> pack round-trips")
+    }
+    // AMEND 1 §7.1: a six-link chain walks and repeats — total, running totals and the ALL boundaries are correct.
+    func testSixLinkChainWalksAndRepeats() {
+        let c = EuclideousRestartChain.from([2, 1, 1, 1, 1, 3])   // six BAR links
+        XCTAssertEqual(c.count, 6)
+        XCTAssertEqual(c.total, 9)
+        XCTAssertEqual((0..<6).map { c.runningTotal($0) }, [0, 2, 3, 4, 5, 6])
+        XCTAssertEqual(c.links, [2, 1, 1, 1, 1, 3])
+        // a six-link ALL chain [1,2,3,4,6,8] repeats every 24 bars, a restart at each cumulative sum
+        let all: [UInt8] = [1, 2, 3, 4, 6, 8]
+        XCTAssertEqual(euclideousAllTotalBars(all), 24)
+        let bb = 4.0
+        for bar in [1, 3, 6, 10, 16, 24, 25, 27] { XCTAssertTrue(euclideousAllRestartIsAt(beat: Double(bar) * bb, barBeats: bb, chain: all), "restart at bar \(bar)") }
+        for bar in [2, 4, 5, 7, 23] { XCTAssertFalse(euclideousAllRestartIsAt(beat: Double(bar) * bb, barBeats: bb, chain: all), "no restart at bar \(bar)") }
+        XCTAssertEqual(euclideousAllRestartCount(atOrBefore: 24 * bb, barBeats: bb, chain: all), 6)
     }
     func testIsSingleLink1OnlyTrueForExactlyOneLinkOfOne() {
         XCTAssertTrue(EuclideousRestartChain.from([1]).isSingleLink1)

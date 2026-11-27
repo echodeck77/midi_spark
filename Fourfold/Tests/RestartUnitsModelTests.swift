@@ -82,7 +82,7 @@ final class RestartUnitsModelTests: XCTestCase {
         let bare = try decode(#"{"restartMelodyPasses":[1,5,7,6]}"#)
         XCTAssertEqual(bare.restartMelodyPasses, [1, 6], "no unit stored → PASS")
         let capped = try decode(#"{"restartMelodyUnit":"HIT","restartMelodyPasses":[1,2,3,4,5,6,7]}"#)
-        XCTAssertEqual(capped.restartMelodyPasses, [1, 2, 3, 4], "at most the first four")
+        XCTAssertEqual(capped.restartMelodyPasses, [1, 2, 3, 4, 5, 6], "at most the first six (AMEND 1 §1.1, was four)")
         let rhythm = try decode(#"{"restartRhythmUnit":"RIFF","restartRhythmBars":[1,5,6,8,7,2]}"#)
         XCTAssertEqual(rhythm.restartRhythmBars, [1, 6, 8, 2], "RHYTHM never keeps 5 or 7")
         XCTAssertNil(try decode("{}").restartRhythmBars, "nil stays nil (migrate)")
@@ -202,8 +202,8 @@ final class RestartUnitsModelTests: XCTestCase {
         var p = PluginState(machines: [], scenes: [SceneState.empty()])
         p.euclideousAllChain = [4]
         XCTAssertEqual(p.allChainResolved, [4])
-        p.euclideousAllChain = [4, 0, 2, 8, 16, 3]             // a zero link is dropped; capped at 4 links
-        XCTAssertEqual(p.allChainResolved, [4, 2, 8, 16])
+        p.euclideousAllChain = [4, 0, 2, 8, 16, 3, 1, 2]       // a zero link is dropped; capped at 6 links (AMEND 1 §1.1, was four)
+        XCTAssertEqual(p.allChainResolved, [4, 2, 8, 16, 3, 1])
         p.euclideousAllChain = []                               // explicitly empty ⇒ no ALL
         XCTAssertEqual(p.allChainResolved, [])
     }

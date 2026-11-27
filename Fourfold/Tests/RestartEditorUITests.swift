@@ -147,10 +147,10 @@ final class RestartEditorUITests: XCTestCase {
         var last = pinned(); last.restartRhythmBars = [8]
         euclideousApplyRestartEdit(.tapLink(rhythm: true, slot: 0), to: &last, lane: 0, pin: nil)
         XCTAssertEqual(last.restartRhythmBars, [1], "the only link wraps, never removed"); XCTAssertTrue(last.restartRhythmOnResolved, "and stays on")
-        // + appends a 1, up to four
+        // + appends a 1, up to six (AMEND 1 §1.1, was four)
         var p = pinned()
-        for _ in 0..<5 { euclideousApplyRestartEdit(.addLink(rhythm: false), to: &p, lane: 0, pin: nil) }
-        XCTAssertEqual(p.restartMelodyPasses, [1, 1, 1, 1])
+        for _ in 0..<8 { euclideousApplyRestartEdit(.addLink(rhythm: false), to: &p, lane: 0, pin: nil) }
+        XCTAssertEqual(p.restartMelodyPasses, [1, 1, 1, 1, 1, 1])
     }
     func testTheFreePillAndWithRhythm() {
         var l = pinned()

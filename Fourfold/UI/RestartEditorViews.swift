@@ -318,7 +318,7 @@ struct EuclideousRestartSectionView: View {
             } else {
                 countChips(progressLink: nil, fraction: 0)
             }
-            if chain.count < 4 { addBox }
+            if chain.count < frames.countChips.count { addBox }   // AMEND 1 §1.1: + shows while a slot is free (6 on the live card, 4 in the overlay)
             if (cardMode ? chain.count >= 1 : chain.count >= 2) { minusBox }   // §3.8: the card's − shows at 1+ links (removing the only one deactivates); the overlay keeps §4.8 (2+)
             if showsTimeline { timeline }
         }
@@ -422,7 +422,7 @@ struct EuclideousRestartSectionView: View {
     /// §3.8: the card's − frame — sp4 after the + box (or after the last chip at four links); shown at 1+ links.
     private func cardMinusFrame() -> CGRect? {
         let h = frames.countChips.first?.height ?? 28
-        if chain.count < 4, let add = frames.addBox(count: chain.count) { return CGRect(x: add.maxX + 4, y: add.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: h) }
+        if chain.count < frames.countChips.count, let add = frames.addBox(count: chain.count) { return CGRect(x: add.maxX + 4, y: add.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: h) }
         if let last = frames.countChips.last { return CGRect(x: last.maxX + 4, y: last.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: h) }
         return nil
     }
@@ -561,7 +561,7 @@ struct EuclideousAllRowView: View {
                                            onChange: { nv in var c = ints; c[i] = nv; onSet(c.map { UInt8($0) }) },
                                            onRemove: { var c = ints; c.remove(at: i); onSet(c.map { UInt8($0) }) })
                 }
-                if ints.count < 4 { addBox }
+                if ints.count < EuclideousRestartChain.maxLinks { addBox }   // AMEND 1 §1.1: up to six ALL links (was four)
                 if !ints.isEmpty {
                     Text("BARS").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.8).foregroundColor(Color(hex: 0x6B707A))
                     nowReadout(ints)

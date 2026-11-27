@@ -6875,30 +6875,31 @@ struct EuclideousLaneTickInfo: Equatable {
 // happen to hold (decode-only from here — nothing ever pins them again) and will not reflect a lane's new
 // chains; flagged in this ferry's own report (§17.9), not silently absorbed.
 
-/// A restart chain (RHYTHM in bars, MELODY in passes — §4.1), packed as 4 bytes in one UInt32: byte i is
+/// A restart chain (RHYTHM in bars, MELODY in passes — §4.1), packed as 6 bytes in one UInt64: byte i is
 /// link i+1, 0 = unused. FREE = 0 (every byte 0). Fixed-size, Equatable, no allocation — the render-path
-/// shape §4.11 asks for.
+/// shape §4.11 asks for. (RESETS V3 AMEND 1 §1.1: widened UInt32→UInt64 to hold up to six links.)
 struct EuclideousRestartChain: Equatable {
-    var packed: UInt32 = 0
+    static let maxLinks = 6   // §1.1: up to six links per chain (was four)
+    var packed: UInt64 = 0
     static let free = EuclideousRestartChain()
     var isFree: Bool { packed == 0 }
     var count: Int {
-        for i in 0..<4 where (packed >> UInt32(8 * i)) & 0xFF == 0 { return i }
-        return 4
+        for i in 0..<Self.maxLinks where (packed >> UInt64(8 * i)) & 0xFF == 0 { return i }
+        return Self.maxLinks
     }
-    func link(_ i: Int) -> Int { Int((packed >> UInt32(8 * i)) & 0xFF) }
+    func link(_ i: Int) -> Int { Int((packed >> UInt64(8 * i)) & 0xFF) }
     /// C — the chain's own cycle length, in its own unit (bars for rhythm, passes for melody). 0 ⇒ FREE.
     var total: Int { var t = 0; var i = 0; while i < count { t += link(i); i += 1 }; return t }
     /// o_i (o_0 = 0): the running total BEFORE link i.
     func runningTotal(_ i: Int) -> Int { var t = 0; var s = 0; while s < i { t += link(s); s += 1 }; return t }
     /// True exactly when this chain is a single link of 1 — "a melody chain of 1 is exactly what LOCK did" (§4.7).
     var isSingleLink1: Bool { count == 1 && link(0) == 1 }
-    /// Builds a chain from a validated link array (§4.11: drop anything not in {1,2,3,4,6,8}, keep ≤ 4).
+    /// Builds a chain from a validated link array (§4.11: drop anything not in {1,2,3,4,6,8}, keep ≤ 6).
     static func from(_ raw: [UInt8]) -> EuclideousRestartChain {
-        var p: UInt32 = 0; var i = 0
+        var p: UInt64 = 0; var i = 0
         for v in raw where [1, 2, 3, 4, 6, 8].contains(Int(v)) {
-            guard i < 4 else { break }
-            p |= UInt32(v) << UInt32(8 * i); i += 1
+            guard i < maxLinks else { break }
+            p |= UInt64(v) << UInt64(8 * i); i += 1
         }
         return EuclideousRestartChain(packed: p)
     }
@@ -6907,7 +6908,7 @@ struct EuclideousRestartChain: Equatable {
 }
 /// §5.1 — the RHYTHM origin, in BEATS. FREE ⇒ 0. Otherwise: cycle = C × barBeats, m = floor(beat/cycle), w = beat −
 /// m×cycle; the origin is m×cycle + barBeats × the largest running total o_i with o_i×barBeats ≤ w (o_0 = 0 always
-/// qualifies — a running-total chain always has a mark at its own cycle start). Bounded: ≤ 4 links.
+/// qualifies — a running-total chain always has a mark at its own cycle start). Bounded: ≤ 6 links.
 func euclideousRhythmChainOrigin(beat: Double, barBeats: Double, chain: EuclideousRestartChain) -> Double {
     guard !chain.isFree, barBeats > 0 else { return 0 }
     let cycle = Double(chain.total) * barBeats

@@ -129,18 +129,19 @@ struct EuclideousRestartSectionFramesV2: Equatable {
     var countChips: [CGRect]                // 4 fixed 44 × 28 positions; the view draws `count` of them, then the + box at countChips[count]
     var axisLabel: CGRect?                  // nil when the timeline is dropped
     var cells: [CGRect]                     // 16 timeline cells (empty when dropped)
-    /// The + box (28 × 28) when there are `count` (< 4) links — at count-chip slot `count`, left-aligned, 28 wide.
+    /// The + box (28 × 28) when a count-chip slot is still free (< `countChips.count` links) — at slot `count`, left-aligned, 28 wide. (AMEND 1 §1.1: the cap is the slot array's length — 4 in the overlay/V2 card, 6 on the live V3 card — so a six-link V3 chain still gets a +.)
     func addBox(count: Int) -> CGRect? {
-        guard count >= 0, count < 4 else { return nil }
+        guard count >= 0, count < countChips.count else { return nil }
         let r = countChips[count]
         return CGRect(x: r.minX, y: r.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: r.height)
     }
-    /// draft 3 §4.8: the − box (28 wide), shown at 2+ links — sp4 after the + box, or where + would be at four links (slot 4 = x 192, so it ends at x 220, §4.9). nil below 2 links.
+    /// draft 3 §4.8: the − box (28 wide), shown at 2+ links — sp4 after the + box, or after the last chip when every slot is full (so four links + − end at x 220, §4.9). nil below 2 links. (AMEND 1: no magic `4*48` — derived from the last chip so it follows the slot count.)
     func minusBox(count: Int) -> CGRect? {
         guard count >= 2 else { return nil }
         let h = countChips.first?.height ?? 28, y = countChips.first?.minY ?? 0
-        if count < 4, let add = addBox(count: count) { return CGRect(x: add.maxX + 4, y: add.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: add.height) }
-        return CGRect(x: 4 * 48, y: y, width: EuclideousRestartEditorMetricsV2.addBoxW, height: h)
+        if let add = addBox(count: count) { return CGRect(x: add.maxX + 4, y: add.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: add.height) }
+        if let last = countChips.last { return CGRect(x: last.maxX + 4, y: y, width: EuclideousRestartEditorMetricsV2.addBoxW, height: h) }
+        return CGRect(x: 0, y: y, width: EuclideousRestartEditorMetricsV2.addBoxW, height: h)
     }
 }
 struct EuclideousRestartEditorFramesV2: Equatable {
@@ -280,7 +281,7 @@ func euclideousResetsCardLayoutV3(size: CGSize, rhythmActive: Bool, melodyActive
         let srcStart = (chips.last?.maxX ?? x0) + unitsToSrc
         let sources = (0..<4).map { CGRect(x: srcStart + CGFloat($0) * (srcW + srcGap), y: top, width: srcW, height: rowH) }
         let countTop = active ? top + rowH + rowGap : top            // §3.3: an inactive chain's + box is on row 1, not a phantom row 2
-        let countChips = (0..<4).map { CGRect(x: x0 + CGFloat($0) * (countW + countGap), y: countTop, width: countW, height: rowH) }
+        let countChips = (0..<EuclideousRestartChain.maxLinks).map { CGRect(x: x0 + CGFloat($0) * (countW + countGap), y: countTop, width: countW, height: rowH) }   // AMEND 1 §1.1: six slots (was four)
         return EuclideousRestartSectionFramesV2(top: top, labelColumn: label, freePill: .zero, chips: chips, sources: sources, countChips: countChips, axisLabel: nil, cells: [])
     }
     let rhythmRows = rhythmActive ? 2 : 1
@@ -416,7 +417,7 @@ private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: in
         turnChainLive(&l, rhythm: rhythm)
     case .addLink(let rhythm):
         var links = (rhythm ? l.restartRhythmChainResolved : l.restartMelodyChainResolved).links
-        guard links.count < 4 else { return }
+        guard links.count < EuclideousRestartChain.maxLinks else { return }   // AMEND 1 §1.1: up to six links
         links.append(1)
         if rhythm { l.restartRhythmBars = links } else { l.restartMelodyPasses = links }
         turnChainLive(&l, rhythm: rhythm)   // §3: + on a FREE row wakes it

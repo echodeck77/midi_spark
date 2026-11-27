@@ -28,7 +28,7 @@ final class RestartFlashTests: XCTestCase {
 
 
     private func chain(_ links: [Int]) -> EuclideousRestartChain {
-        var c = EuclideousRestartChain(); for (i, l) in links.enumerated() { c.packed |= UInt32(l) << UInt32(8 * i) }; return c
+        var c = EuclideousRestartChain(); for (i, l) in links.enumerated() { c.packed |= UInt64(l) << UInt64(8 * i) }; return c
     }
 
     // MARK: RHYTHM — the LANES panel's rhythm restart marks, against a brute-force restatement

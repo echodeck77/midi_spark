@@ -1,6 +1,6 @@
 //  RestartUnits.swift — RESTART UNITS ferry (2026-11-04): the per-chain UNIT / SOURCE / ON switch and the melody's WITH RHYTHM link, as stored on a lane and as resolved for the engine (Foundation only).
 //
-//  A lane still has two chains — `restartRhythmBars` (RHYTHM) and `restartMelodyPasses` (MELODY) — each a list of up to four links. Their names stay; the links now count in the chain's UNIT (a comment on the
+//  A lane still has two chains — `restartRhythmBars` (RHYTHM) and `restartMelodyPasses` (MELODY) — each a list of up to six links (§1.1, was four). Their names stay; the links now count in the chain's UNIT (a comment on the
 //  fields says so). RHYTHM counts BAR | PASS (another lane's passes) | RIFF (riff completions of any lane, its own by default); MELODY counts PASS (any lane's, its own by default) | BAR | HIT (its own lane's hits).
 //  A chain is ACTIVE when its switch is on AND it holds a link; an inactive chain behaves as FREE and keeps its links. Every field is additive-Optional: nil resolves to what the engine always did, so a document
 //  that never had them plays exactly as before.
@@ -24,26 +24,26 @@ enum EuclideousMelodyRestartUnit: String, Codable, CaseIterable {
 func euclideousRestartLinkIsValid(_ v: UInt8, hit: Bool) -> Bool { hit ? (1...8).contains(Int(v)) : [1, 2, 3, 4, 6, 8].contains(Int(v)) }
 /// The link ladder a tap steps through (§7.4): the valid values in order.
 func euclideousRestartLinkLadder(hit: Bool) -> [UInt8] { hit ? [1, 2, 3, 4, 5, 6, 7, 8] : [1, 2, 3, 4, 6, 8] }
-/// §3.3: the links a stored array keeps for a unit — the valid ones, at most the first four.
+/// §3.3: the links a stored array keeps for a unit — the valid ones, at most the first six (§1.1, was four).
 func euclideousRestartValidLinks(_ raw: [UInt8], hit: Bool) -> [UInt8] {
     var out: [UInt8] = []
-    for v in raw where euclideousRestartLinkIsValid(v, hit: hit) { if out.count < 4 { out.append(v) } }
+    for v in raw where euclideousRestartLinkIsValid(v, hit: hit) { if out.count < EuclideousRestartChain.maxLinks { out.append(v) } }
     return out
 }
 
 extension EuclideousRestartChain {
-    /// A chain from a stored link array for a unit: HIT keeps 1…8 (so 5 and 7), every other unit {1,2,3,4,6,8}; at most four links.
+    /// A chain from a stored link array for a unit: HIT keeps 1…8 (so 5 and 7), every other unit {1,2,3,4,6,8}; at most six links (§1.1).
     static func from(_ raw: [UInt8], hit: Bool) -> EuclideousRestartChain {
-        var p: UInt32 = 0; var i = 0
+        var p: UInt64 = 0; var i = 0
         for v in raw where euclideousRestartLinkIsValid(v, hit: hit) {
-            guard i < 4 else { break }
-            p |= UInt32(v) << UInt32(8 * i); i += 1
+            guard i < maxLinks else { break }
+            p |= UInt64(v) << UInt64(8 * i); i += 1
         }
         return EuclideousRestartChain(packed: p)
     }
 }
 
-/// A lane's two chains as resolved (§3.1) — fixed-size value data (the packed chains are one UInt32 each), safe to build on the render thread.
+/// A lane's two chains as resolved (§3.1) — fixed-size value data (the packed chains are one UInt64 each), safe to build on the render thread.
 struct EuclideousRestartSettings: Equatable {
     /// The links as stored (validated for the unit), whether or not the chain is on.
     var rhythm: EuclideousRestartChain = .free
