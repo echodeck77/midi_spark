@@ -272,7 +272,7 @@ func euclideousResetsCardLayoutV3(size: CGSize, rhythmActive: Bool, melodyActive
     let TW = max(1, size.width)
     let tileH = EuclideousResetsTileMetrics.height
     let rowH: CGFloat = 28, rowGap: CGFloat = 8, ctrlTop = tileH + 8
-    let linked = withRhythm && !melodyActive
+    let linked = withRhythm   // AMEND 1 §2.1: linked ⇔ withRhythm on (the melody chain is kept inactive while withRhythm is on — §2.2 enforces it at the edit and at load, so a lit link never sits beside a split view, §8)
     let unitW: CGFloat = 40, unitGap: CGFloat = 4, srcW: CGFloat = 20, srcGap: CGFloat = 4, countW: CGFloat = 44, countGap: CGFloat = 4, labelW: CGFloat = 54, unitsToSrc: CGFloat = 10
     let linkButton = CGRect(x: TW - 28, y: ctrlTop + (rowH - 28) / 2, width: 28, height: 28)
     let linkButtonHit = CGRect(x: TW - 36, y: ctrlTop + (rowH - 44) / 2, width: 36, height: 44)
@@ -396,7 +396,9 @@ private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: in
             if turningOn, l.restartMelodyChainResolved.isFree { l.restartMelodyPasses = [1] }
         }
     case .withRhythm:
-        l.restartMelodyWithRhythm = !l.restartMelodyWithRhythmResolved
+        let turningOn = !l.restartMelodyWithRhythmResolved
+        l.restartMelodyWithRhythm = turningOn
+        if turningOn { l.restartMelodyOn = false }   // AMEND 1 §2.2: withRhythm on ⇒ the melody chain is inactive (its stored links are kept)
     case .tapLink(let rhythm, let slot):
         let hit = !rhythm && l.restartMelodyUnitResolved == .hit
         var links = (rhythm ? l.restartRhythmChainResolved : l.restartMelodyChainResolved).links

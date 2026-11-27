@@ -164,6 +164,19 @@ final class RestartEditorUITests: XCTestCase {
         var m = pinned()
         XCTAssertTrue(euclideousApplyRestartEdit(.withRhythm, to: &m, lane: 0, pin: nil)); XCTAssertTrue(m.restartMelodyWithRhythmResolved)
         XCTAssertTrue(euclideousApplyRestartEdit(.withRhythm, to: &m, lane: 0, pin: nil)); XCTAssertFalse(m.restartMelodyWithRhythmResolved)
+        // AMEND 1 §2.2: turning withRhythm ON deactivates an active melody chain and keeps its links.
+        var w = pinned(); w.restartMelodyPasses = [4, 2]; w.restartMelodyOn = true
+        XCTAssertTrue(w.restartMelodyOnResolved)
+        XCTAssertTrue(euclideousApplyRestartEdit(.withRhythm, to: &w, lane: 0, pin: nil))
+        XCTAssertTrue(w.restartMelodyWithRhythmResolved); XCTAssertFalse(w.restartMelodyOnResolved, "withRhythm on ⇒ the melody chain is inactive")
+        XCTAssertEqual(w.restartMelodyPasses, [4, 2], "its stored links are kept")
+    }
+    func testLinkOnAlwaysShowsLinkedView() {
+        // AMEND 1 §2.1: linked ⇔ withRhythm on, regardless of the melody chain's active flag (§8: a lit link never sits beside a split view).
+        let sz = CGSize(width: 360, height: 400)
+        XCTAssertTrue(euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: true, withRhythm: true).linked, "withRhythm on ⇒ linked even if melodyActive is somehow true")
+        XCTAssertTrue(euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: false, withRhythm: true).linked)
+        XCTAssertFalse(euclideousResetsCardLayoutV3(size: sz, rhythmActive: true, melodyActive: false, withRhythm: false).linked, "withRhythm off ⇒ split")
     }
     /// §3 interaction: the count-chip drag helper, the wrap, and "any FREE-row edit turns it live".
     func testTest31TheCountChipDragWrapAndFreeRowWaking() {

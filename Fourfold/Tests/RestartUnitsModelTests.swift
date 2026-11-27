@@ -92,6 +92,18 @@ final class RestartUnitsModelTests: XCTestCase {
         XCTAssertNil(junk.restartRhythmUnit); XCTAssertNil(junk.restartRhythmSource); XCTAssertNil(junk.restartMelodyOn); XCTAssertEqual(junk.restartMelodySource, 3, "clamped to a lane")
         XCTAssertEqual(try decode(#"{"restartRhythmSource":-4}"#).restartRhythmSource, 0)
     }
+    func testWithRhythmWithActiveMelodyLoadsSplit() throws {
+        // AMEND 1 §2.3: a document saved with withRhythm ON and an ACTIVE melody chain loads with withRhythm OFF (melody as saved).
+        let both = try decode(#"{"restartMelodyWithRhythm":true,"restartMelodyOn":true,"restartMelodyUnit":"PASS","restartMelodyPasses":[4,2]}"#)
+        XCTAssertFalse(both.restartMelodyWithRhythmResolved, "withRhythm cleared on load")
+        XCTAssertTrue(both.restartMelodyOnResolved); XCTAssertEqual(both.restartMelodyPasses, [4, 2], "the melody chain loads as saved")
+        // a nil On switch with links is still active ⇒ also loads split
+        let implied = try decode(#"{"restartMelodyWithRhythm":true,"restartMelodyPasses":[3]}"#)
+        XCTAssertFalse(implied.restartMelodyWithRhythmResolved); XCTAssertEqual(implied.restartMelodyPasses, [3])
+        // withRhythm on with an INACTIVE melody chain is untouched (the normal linked case)
+        let linkedOnly = try decode(#"{"restartMelodyWithRhythm":true,"restartMelodyOn":false,"restartMelodyPasses":[4]}"#)
+        XCTAssertTrue(linkedOnly.restartMelodyWithRhythmResolved, "withRhythm kept when the melody chain is inactive")
+    }
     func testChainFromRespectsTheUnit() {
         XCTAssertEqual(EuclideousRestartChain.from([5, 7, 9], hit: true).links, [5, 7])
         XCTAssertEqual(EuclideousRestartChain.from([5, 7, 9], hit: false).links, [])
@@ -108,11 +120,15 @@ final class RestartUnitsModelTests: XCTestCase {
         return l
     }
     func testAllSevenFieldsRoundTripThroughTheCodec() throws {
-        let l = populated()
+        // all seven restart fields survive the codec. AMEND 1 §2.3: withRhythm on requires an INACTIVE melody chain, so this
+        // valid fixture keeps the melody switch off (its stored links still travel); `populated()`'s both-on combo can't be decoded.
+        var l = EuclidLine(); l.restartRhythmBars = [2, 1]; l.restartMelodyPasses = [1, 5]
+        l.restartRhythmUnit = .pass; l.restartRhythmSource = 2; l.restartRhythmOn = true
+        l.restartMelodyUnit = .hit; l.restartMelodySource = 1; l.restartMelodyOn = false; l.restartMelodyWithRhythm = true
         let back = try JSONDecoder().decode(EuclidLine.self, from: JSONEncoder().encode(l))
         XCTAssertEqual(back, l)
-        XCTAssertEqual(back.restartRhythmUnit, .pass); XCTAssertEqual(back.restartRhythmSource, 2); XCTAssertEqual(back.restartRhythmOn, false)
-        XCTAssertEqual(back.restartMelodyUnit, .hit); XCTAssertEqual(back.restartMelodySource, 1); XCTAssertEqual(back.restartMelodyOn, true); XCTAssertEqual(back.restartMelodyWithRhythm, true)
+        XCTAssertEqual(back.restartRhythmUnit, .pass); XCTAssertEqual(back.restartRhythmSource, 2); XCTAssertEqual(back.restartRhythmOn, true)
+        XCTAssertEqual(back.restartMelodyUnit, .hit); XCTAssertEqual(back.restartMelodySource, 1); XCTAssertEqual(back.restartMelodyOn, false); XCTAssertEqual(back.restartMelodyWithRhythm, true)
         XCTAssertEqual(back.restartMelodyPasses, [1, 5], "a HIT chain's 5 survives the trip")
     }
     func testTheSnapshotBuildersFreshLiteralCarriesAllSevenFields() {

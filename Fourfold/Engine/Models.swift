@@ -1463,6 +1463,8 @@ extension EuclidLine {
         midiMode = (try? c.decodeIfPresent(MidiMode.self, forKey: .midiMode)).flatMap { $0 }   // INPUTS + HARMONY: an unknown stored value is ADD (MidiMode's own decoder), a wrong type reads as missing
         restartRhythmBars = restartRhythmBars.map { euclideousRestartValidLinks($0, hit: false) }
         restartMelodyPasses = restartMelodyPasses.map { euclideousRestartValidLinks($0, hit: restartMelodyUnit == .hit) }
+        // AMEND 1 §2.3: a document saved with WITH RHYTHM on AND an active melody chain loads with WITH RHYTHM off (melody as saved). withRhythm on now always means the linked view (§2.1), so a lit link can't sit beside an active melody; the melody no longer also restarts with the rhythm (Paul accepts the change).
+        if restartMelodyWithRhythmResolved, restartMelodyOnResolved, !restartMelodyChainResolved.isFree { restartMelodyWithRhythm = false }
         if !usesNewAnswer, let m = EuclidLine.migratedAnswer(rhythm: listenRhythm, pitch: listenPitch) {
             answerRhythmOn = m.rhythmOn; answerRhythmMode = m.rhythmMode; answerPitchOn = m.pitchOn; answerPitchMode = m.pitchMode
         }
