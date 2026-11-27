@@ -2026,8 +2026,11 @@ struct EuclideousPage: View {
                 .frame(width: box.width, height: box.height)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
                 .overlay(euclideousRandomRiffGridOverlay(cornerRadius: 12))
+                // GRID CHANCE (Paul 2026-11-27): the % toggle + editor ride the GRID's OWN frame as an overlay — exactly like the scrub ribbon and the riff arrows — so they share its padded geometry and can never drift from the cells (the earlier page-level mount sat a few points down+right of the grid). Added BEFORE `.offset` (see the offset-moves-only-drawing note above). Raised above the page-level close-catcher (z7) while open so its controls stay tappable; the catcher still closes a tap OUTSIDE the panel.
+                .overlay(alignment: .topLeading) { gridChanceOverlay(box: box) }
                 .allowsHitTesting(!euclideousLockMode)
                 .offset(x: page.riff.minX, y: page.riff.minY)
+                .zIndex((riffChanceOpen || stackChanceOpen) ? 8 : 0)
             EuclideousStackBreak { AnyView(sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true, portrait: !page.isLandscape)) }   // FX in portrait too: its columns match the riff grid's (same width)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
                 .allowsHitTesting(!euclideousLockMode)
@@ -2083,11 +2086,8 @@ struct EuclideousPage: View {
                     .onTapGesture { closeGridChanceAll() }
                     .accessibilityHidden(true).zIndex(7)
             }
-            EuclideousStackBreak { AnyView(gridChanceOverlay(box: box)) }
-                .frame(width: box.width, height: box.height)
-                .offset(x: page.riff.minX, y: page.riff.minY)
-                .zIndex(8)
-            // GRID CHANCE amendment 1 (A5): the riff arrows + stack dots paint ABOVE the chance sliders — the grid's own copy is beneath the zIndex-8 overlay, so a second hit-test-free copy sits on top.
+            // GRID CHANCE (2026-11-27): the % toggle + editor moved onto the grid's own frame (an `.overlay`, above) so they line up with the cells; they no longer mount here at page level.
+            // GRID CHANCE amendment 1 (A5): the riff arrows + stack dots paint ABOVE the chance sliders — the grid's own copy is beneath the chance overlay, so a second hit-test-free copy sits on top.
             EuclideousStackBreak { AnyView(chanceLiveIndicatorsAbove(box: box)) }
                 .frame(width: box.width, height: box.height)
                 .offset(x: page.riff.minX, y: page.riff.minY)
