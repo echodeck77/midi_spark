@@ -36,6 +36,30 @@
 import SwiftUI
 import UIKit
 
+/// KIT CARD V2 §4.3/§4.5 — a pending SAVE/RENAME text prompt.
+struct KitNameAlertRequest: Identifiable { let id = UUID(); let title: String; let prefill: String; let onSave: (String) -> Void }
+
+/// Presents a UIAlertController text prompt from its OWN window (extension-safe — no `UIApplication.shared`). Mounted
+/// 0-size in `pageBody`; set `request` to show it. iOS-15 safe (SwiftUI's TextField-in-.alert is iOS 16).
+struct KitNameAlertPresenter: UIViewRepresentable {
+    @Binding var request: KitNameAlertRequest?
+    func makeUIView(context: Context) -> UIView { let v = UIView(); v.isUserInteractionEnabled = false; return v }
+    func updateUIView(_ v: UIView, context: Context) {
+        guard let req = request else { return }
+        DispatchQueue.main.async {
+            request = nil
+            guard var top = v.window?.rootViewController else { return }
+            while let p = top.presentedViewController { top = p }
+            guard !(top is UIAlertController) else { return }
+            let a = UIAlertController(title: req.title, message: nil, preferredStyle: .alert)
+            a.addTextField { tf in tf.text = req.prefill; tf.autocapitalizationType = .allCharacters; tf.clearButtonMode = .whileEditing }
+            a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            a.addAction(UIAlertAction(title: "Save", style: .default) { _ in req.onSave(a.textFields?.first?.text ?? "") })
+            top.present(a, animated: true)
+        }
+    }
+}
+
 // EUCLIDEOUS INVERT (euclideousInvertLine/euclideousEnsureMissDefaults) and the NOTE/OCTAVE cycle
 // (euclideousNoteSelCycle/euclideousStepNoteSel) live in Derivations.swift (Paul 2026-10-05) —
 // Foundation-only, so they reach the macOS unit-test target; this file only CALLS them. (The rate
@@ -1120,8 +1144,17 @@ struct EuclideousPage: View {
     @State private var drumScrubNote: Int = 0                    // the current note under the finger (drives the field highlight)
     @State private var drumStepTask: Task<Void, Never>? = nil    // the ‹ › hold-repeat task (400 ms then 80 ms); cancelled on release
     @State private var drumScrubWrote = false                   // §1.3: whether this drag has recorded an undo step yet (first write = newStep)
-    @State private var lastSelectedKitRank: [Int: Int] = [:]     // INPUTS MODE §3.4: the rank last selected per lane, so KIT-row EDIT reopens on it (nil ⇒ rank 1)
+    @State private var lastSelectedKitRank: [Int: Int] = [:]     // KIT CARD V2: the SELECTED rank per lane (NOTE / VEL edit it); 0 on load (§1.4)
     @State private var kitTemplatePickerOpen = false             // KIT TEMPLATES §3.2: the template picker over the kit editor body (UI only)
+    // KIT CARD V2 §3.3 drag-to-copy state (transient, never saved): the lifted rank + its finger position + the cell under the finger.
+    @State private var kitDragLane: Int? = nil
+    @State private var kitDragRank: Int = 0
+    @State private var kitDragStart: CGPoint = .zero
+    @State private var kitDragPos: CGPoint = .zero
+    @State private var kitDragTarget: Int? = nil
+    @State private var kitDragMoved = false                      // ≥ 8 pt ⇒ a drag, not a tap (§3.3)
+    @State private var kitPickerLane: Int? = nil                // KIT CARD V2 §4.2: the standalone picker overlay's lane (nil = closed)
+    @State private var kitNameAlert: KitNameAlertRequest? = nil // KIT CARD V2 §4.3/§4.5: a pending SAVE/RENAME text prompt
     // RIBBON SETTINGS §6.1: in TUTTI mode a touch-down toggles ONE mark (the column/rank under the touch); the rest of the drag does nothing. This guards "only the first change of a drag acts".
     @State private var tuttiDragHandled = false
     // RIBBON SETTINGS §9: the live LOOP span (columns lo, hi; 0 = none) + the drag anchor (the column touched down on, fixed until lift). Ephemeral UI state mirroring the kernel live word; not saved/undone.
@@ -2077,15 +2110,17 @@ struct EuclideousPage: View {
                     .offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
                     .zIndex(6)
             }
-            // KIT SOURCE (ferry 2026-11-23) §4.1: the editor over the four lane cards' block. A page-level catcher below it closes on an outside tap (§4.2, the GRID CHANCE pattern).
-            if let kit = kitEditor, kit.lane >= 0, kit.lane < lines.count {
+            // KIT CARD V2 §4.2: the standalone kit PICKER over the four lane cards' block (the editor overlay is removed, §6). A
+            // page-level catcher below it closes on an outside tap (the GRID CHANCE pattern).
+            if let plane = kitPickerLane, plane >= 0, plane < lines.count {
                 Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
-                    .onTapGesture { commitOpenKitName(); kitEditor = nil; kitTemplatePickerOpen = false }
+                    .onTapGesture { kitPickerLane = nil }
                     .accessibilityHidden(true).zIndex(9)
-                EuclideousStackBreak { AnyView(kitEditorView(kit, block: page.lanes[0].union(page.lanes[3]).size)) }
+                EuclideousStackBreak { AnyView(kitPickerOverlay(lane: plane, block: page.lanes[0].union(page.lanes[3]).size)) }
                     .offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
                     .zIndex(10)
             }
+            KitNameAlertPresenter(request: $kitNameAlert).frame(width: 0, height: 0).zIndex(11)   // §4.3/§4.5 SAVE/RENAME text prompt
             // GRID CHANCE (Paul 2026-11-23): the editor lives at the PAGE level so a tap ANYWHERE outside the riff panel closes it (req 1). The full-page catcher (only while open) sits BELOW the overlay; the overlay covers just the riff panel box, so taps on the grid / ladders / toggle are consumed there and every other tap closes.
             if riffChanceOpen || stackChanceOpen {
                 Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
@@ -2306,14 +2341,15 @@ struct EuclideousPage: View {
                 .frame(width: block.width, height: block.height, alignment: .topLeading)
                 .scaleEffect(scale, anchor: .topLeading).offset(x: ox, y: oy).zIndex(6)
         }
-        if let kit = kitEditor, kit.lane >= 0, kit.lane < lines.count {
+        if let plane = kitPickerLane, plane >= 0, plane < lines.count {
             Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
-                .onTapGesture { commitOpenKitName(); kitEditor = nil; kitTemplatePickerOpen = false }
+                .onTapGesture { kitPickerLane = nil }
                 .accessibilityHidden(true).zIndex(9)
-            EuclideousStackBreak { AnyView(kitEditorView(kit, block: block)) }
+            EuclideousStackBreak { AnyView(kitPickerOverlay(lane: plane, block: block)) }
                 .frame(width: block.width, height: block.height, alignment: .topLeading)
                 .scaleEffect(scale, anchor: .topLeading).offset(x: ox, y: oy).zIndex(10)
         }
+        KitNameAlertPresenter(request: $kitNameAlert).frame(width: 0, height: 0).zIndex(11)
     }
 
     /// LANE LOCK §1.3: a tap ANYWHERE outside the four lane cards (header incl. the padlock, margins, gutters, the dimmed panels) finishes lock mode — sits above the header/panels but below the lane cards in z-order,
@@ -2759,6 +2795,7 @@ struct EuclideousPage: View {
         playAsPopup = nil         // PLAY AS SEQUENCE (2026-11-08): the same
         notesChainPopup = nil; notesShiftPopup = nil; notesRepeatPopup = nil   // PLAY AS ROWS (2026-11-11 / amend 1): the ORDER/VOICES/SPREAD, SHIFT and REPEAT pop-ups
         commitOpenKitName(); kitEditor = nil; kitEditorIsDrumPicker = false; kitTemplatePickerOpen = false           // KIT SOURCE (§4.1): the same; KIT EDITOR V2 §2.1 commits a typed name first
+        kitPickerLane = nil   // KIT CARD V2 §4.2: the standalone picker is one overlay at a time too
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -8238,6 +8275,24 @@ struct EuclideousPage: View {
             return AnyView(ScrollView(.vertical, showsIndicators: false) { drumRows.frame(width: fullWidth, alignment: .top) }
                 .frame(width: fullWidth, height: contentAreaH, alignment: .top))
         }
+        // KIT CARD V2 §3.1 (Paul 2026-11-26): KIT's OWN fixed rows — MODE 34, KIT 32, RANKS 44, NOTE 50, VEL 30, APPLY; NO POOL,
+        // no editor overlay. Slack sits above APPLY. Scroll fallback on a very short card.
+        if mode == .kit {
+            let modeH: CGFloat = 34, kitH: CGFloat = 32, ranksH: CGFloat = 44, noteH: CGFloat = 50, velH: CGFloat = 30, gap: CGFloat = 8
+            let kitRows = VStack(spacing: gap) {
+                modeRow(idx, line, accent, fullWidth: fullWidth, height: modeH)
+                kitRow(idx, line, accent, fullWidth: fullWidth, height: kitH)
+                kitRanksRow(idx, line, accent, fullWidth: fullWidth, height: ranksH)
+                kitNoteRow(idx, line, accent, fullWidth: fullWidth, height: noteH)
+                kitVelRow(idx, line, accent, fullWidth: fullWidth, height: velH)
+                Spacer(minLength: 0)
+                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
+            }
+            let needed = modeH + kitH + ranksH + noteH + velH + buttonH + gap * 6
+            if contentAreaH >= needed { return AnyView(kitRows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
+            return AnyView(ScrollView(.vertical, showsIndicators: false) { kitRows.frame(width: fullWidth, alignment: .top) }
+                .frame(width: fullWidth, height: contentAreaH, alignment: .top))
+        }
         let modeH: CGFloat = 30
         let layout = euclideousInputsTabLayout(contentAreaH: max(0, contentAreaH - buttonH - modeH - 28))
         let rows = VStack(spacing: layout.gap) {
@@ -8248,8 +8303,7 @@ struct EuclideousPage: View {
                 poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
                 inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
                 listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH)
-            case .kit:
-                kitRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
+            case .kit: EmptyView()   // KIT CARD V2: handled above (its own fixed rows)
             case .drum: EmptyView()   // handled above
             }
             Spacer(minLength: 0)   // absorbs the slack between the mode's rows and the button
@@ -8484,35 +8538,314 @@ struct EuclideousPage: View {
     /// INPUTS MODE §3.4 / KIT TEMPLATES (Paul 2026-11-26): the KIT row — label, the TEMPLATE selector (2/3, prominent: the lane's
     /// current template name + a chevron, a tap opens the picker straight away) and EDIT (1/3). RESET GM is gone from the row — GM
     /// is the first row of the picker, so choosing it there is the reset.
+    /// KIT CARD V2 §3.2 — the KIT row: label, the template button (name / CUSTOM + chevron, opens the picker) and SAVE.
     private func kitRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
-        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 8
-        let avail = max(1, fullWidth - labelW - gap), tmplW = avail * 2 / 3, editW = avail - tmplW
-        let h = min(EuclideousPoolTabMetrics.toggleH, height)
-        let tmpl = euclideousKitTemplate(id: line.kitTemplateResolved)   // the lane's current template (gm when nil)
+        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 8, saveW: CGFloat = 64
+        let h: CGFloat = min(28, height)
+        let lab = kitTemplateLabel(line)
         return AnyView(HStack(spacing: 0) {
             Text("KIT").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            // The template selector, on the card and prominent: the current template name + a down chevron, an accent border. A tap
-            // opens the picker directly (the editor, straight into its template list — `kitTemplatePickerOpen` set after the open resets it).
             HStack(spacing: 6) {
-                Text(tmpl.name).font(.system(size: 14, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.55).foregroundColor(Color(hex: 0xF2F4F7))
+                Text(lab.text).font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(0.08 * 13).lineLimit(1).truncationMode(.tail)
+                    .foregroundColor(Color(hex: lab.isCustom ? 0xC9CDD4 : 0xF2F4F7))
                 Spacer(minLength: 2)
-                EuclideousChevronDown().stroke(lane100(accent), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)).frame(width: 11, height: 7)
+                EuclideousChevronDown().stroke(Color(hex: 0x8A909A), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)).frame(width: 10, height: 6)
             }
-            .padding(.horizontal, 12)
-            .frame(width: tmplW, height: h)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(lane100(accent).opacity(0.55), lineWidth: 1))
-            .contentShape(Rectangle()).onTapGesture { openKitEditor(lane: idx, rank: lastSelectedKitRank[idx] ?? 0); kitTemplatePickerOpen = true }
-            .accessibilityElement(children: .ignore).accessibilityLabel("Kit template, \(tmpl.name)").accessibilityHint("Choose a drum machine template").accessibilityAddTraits(.isButton)
+            .padding(.horizontal, 12).frame(maxWidth: .infinity, maxHeight: h)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1E2026)))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(lab.isCustom ? Color(hex: 0x3A3E47) : lane100(accent), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { closeAllOtherOverlays(); kitPickerLane = idx }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Template, \(lab.text)").accessibilityHint("Choose a kit").accessibilityAddTraits(.isButton)
             Spacer(minLength: gap)
-            Text("EDIT").font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.0).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(Color(hex: 0xF2F4F7))
-                .frame(width: editW, height: h)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
-                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(hex: 0x3A3E47), lineWidth: 1))
-                .contentShape(Rectangle()).onTapGesture { openKitEditor(lane: idx, rank: lastSelectedKitRank[idx] ?? 0) }
-                .accessibilityElement(children: .ignore).accessibilityLabel("Edit kit").accessibilityAddTraits(.isButton)
+            Text("SAVE").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.12 * 10).foregroundColor(Color(hex: 0xF2F4F7))
+                .frame(width: saveW, height: h)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x2A2D34)))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x3A3E47), lineWidth: 1))
+                .contentShape(Rectangle()).onTapGesture { presentSaveKitAlert(lane: idx) }
+                .accessibilityElement(children: .ignore).accessibilityLabel("Save kit").accessibilityAddTraits(.isButton)
         }
         .frame(width: fullWidth, height: height))
+    }
+    /// §4.1 the template button's label: a following lane shows GM / CUSTOM (the default's); else the template's name, a user name, or CUSTOM.
+    private func kitTemplateLabel(_ line: EuclidLine) -> (text: String, isCustom: Bool) {
+        let t = line.kitTemplateResolved
+        if t == "custom" { return ("CUSTOM", true) }
+        if t.hasPrefix("user:") { return (userKitName(String(t.dropFirst(5))) ?? "CUSTOM", false) }
+        return (euclideousKitTemplate(id: t).name, false)   // "gm" / a built-in id ⇒ its name
+    }
+    /// A user template's name by id (from the app-level store), or nil if it was deleted (§4.4 ⇒ the lane shows CUSTOM).
+    private func userKitName(_ id: String) -> String? { KitTemplateStore.load().first { $0.id == id }?.name }
+
+    // MARK: - KIT CARD V2 — RANKS / NOTE / VEL rows + edit helpers
+
+    /// §3.3 RANKS row — 8 cells (rank# / note# / note name / velocity bar) + the headphone. Tap selects (+ stopped audition);
+    /// drag onto another cell copies note+velocity. The lane's EFFECTIVE kit is already baked into `kitNotesResolved` (§2.1).
+    private func kitRanksRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let labelW = EuclideousPoolTabMetrics.labelColumn, hpW: CGFloat = 30, gap: CGFloat = 6, cellGap: CGFloat = 3
+        let notes = line.kitNotesResolved, vels = line.kitVelResolved
+        let sel = lastSelectedKitRank[idx] ?? 0
+        let laneCol = lane100(accent)
+        let cellsW = max(1, fullWidth - labelW - hpW - gap)
+        let cw = max(1, (cellsW - cellGap * 7) / 8)
+        let frames = (0..<8).map { CGRect(x: CGFloat($0) * (cw + cellGap), y: 0, width: cw, height: 40) }
+        let draggingHere = kitDragLane == idx && kitDragMoved
+        return AnyView(HStack(spacing: 0) {
+            Text("RANKS").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            ZStack(alignment: .leading) {
+                ForEach(0..<8, id: \.self) { r in
+                    kitRankCell(rank: r, note: Int(notes[r]), vel: Int(vels[r]), selected: r == sel, laneCol: laneCol,
+                                dimmed: draggingHere && kitDragRank == r, target: draggingHere && kitDragTarget == r && kitDragRank != r, w: cw)
+                        .frame(width: cw, height: 40).offset(x: frames[r].minX)
+                }
+            }
+            .frame(width: cellsW, height: 40, alignment: .leading)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { v in
+                    if kitDragLane != idx {
+                        guard let sr = euclideousKitRankAtX(v.startLocation.x, cells: frames) else { return }
+                        kitDragLane = idx; kitDragRank = sr; kitDragStart = v.startLocation; kitDragMoved = false; kitDragTarget = nil
+                    }
+                    guard kitDragLane == idx else { return }
+                    if hypot(v.location.x - kitDragStart.x, v.location.y - kitDragStart.y) >= 8 { kitDragMoved = true }
+                    kitDragTarget = kitDragMoved ? euclideousKitRankAtX(v.location.x, cells: frames) : nil
+                }
+                .onEnded { v in
+                    defer { kitDragLane = nil; kitDragTarget = nil; kitDragMoved = false }
+                    guard kitDragLane == idx else { return }
+                    if !kitDragMoved { kitSelectRank(idx, kitDragRank) }
+                    else if let tgt = euclideousKitRankAtX(v.location.x, cells: frames), tgt != kitDragRank { kitDragCopy(idx, from: kitDragRank, to: tgt) }
+                })
+            Spacer(minLength: gap)
+            kitHeadphoneButton(idx).frame(width: hpW, height: 40)
+        }
+        .frame(width: fullWidth, height: height, alignment: .top))
+    }
+    /// §3.3 one rank cell.
+    private func kitRankCell(rank: Int, note: Int, vel: Int, selected: Bool, laneCol: Color, dimmed: Bool, target: Bool, w: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: 5).fill(laneCol.opacity(selected ? 0.30 : 0.13))
+            RoundedRectangle(cornerRadius: 1.5).fill(laneCol).frame(width: max(2, (w - 6) * CGFloat(vel) / 100), height: 3).padding(.bottom, 2)   // the velocity bar
+            VStack(spacing: 0) {
+                Text("\(rank + 1)").font(.system(size: 7, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0xAEB3BB))
+                Text("\(note)").font(.system(size: 11.5, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.6)
+                Text(euclideousNoteViewName(UInt8(note), flatKey: false)).font(.system(size: 7, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0xAEB3BB)).lineLimit(1).minimumScaleFactor(0.6)
+            }.padding(.top, 2)
+        }
+        .frame(height: 40).clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(target ? Color(hex: 0xF2F4F7) : (selected ? laneCol : .clear), lineWidth: 1.5))
+        .opacity(dimmed ? 0.45 : 1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Rank \(rank + 1), note \(note), \(euclideousAccessibleNoteName(UInt8(note), flatKey: false)), velocity \(vel) percent")
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+    /// §5 the headphone (rank preview). INTERIM: a momentary pool audition until the DRUM-card preview engine lands.
+    private func kitHeadphoneButton(_ idx: Int) -> some View {
+        Image(systemName: "headphones").font(.system(size: 14, weight: .semibold)).foregroundColor(Color(hex: 0xC9CDD4))
+            .frame(width: 30, height: 40)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x202228)))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color(hex: 0x33363E), lineWidth: 1))
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { _ in if testLane != idx { onTestDown(idx) } }.onEnded { _ in onTestUp(idx) })
+            .accessibilityElement(children: .ignore).accessibilityLabel("Preview ranks").accessibilityAddTraits(.isButton)
+    }
+    private func kitSelectRank(_ lane: Int, _ rank: Int) {
+        lastSelectedKitRank[lane] = rank
+        guard !clock.playing, lane < lines.count else { return }
+        let note = Int(lines[lane].kitNotesResolved[rank])
+        if let v = euclideousKitScaledVelocity(base: 100, kitVel: Int(lines[lane].kitVelResolved[rank])) { onKitAudition(lane, note, Int(v)) }
+    }
+    /// §3.3 drag-copy: source rank's note+velocity → target, mark custom (lane-level), select the target, sound nothing. One undo step.
+    private func kitDragCopy(_ lane: Int, from: Int, to: Int) {
+        guard lane < lines.count else { return }
+        let n = lines[lane].kitNotesResolved[from], v = lines[lane].kitVelResolved[from]
+        edit(lane) { l in var nn = l.kitNotesResolved, vv = l.kitVelResolved; nn[to] = n; vv[to] = v; l.kitNotes = nn; l.kitVel = vv; l.kitFollowsDefault = false; l.kitTemplate = "custom" }
+        lastSelectedKitRank[lane] = to
+    }
+    /// §3.4 edit the selected rank's note (scrub / step); materialises the kit, marks custom; stopped ⇒ audition at the rank's velocity.
+    private func kitEditNote(_ lane: Int, _ rank: Int, _ note: Int, first: Bool) {
+        guard lane < lines.count else { return }
+        editStep(lane, first) { l in var nn = l.kitNotesResolved; nn[rank] = UInt8(max(0, min(127, note))); l.kitNotes = nn; l.kitVel = l.kitVelResolved; l.kitFollowsDefault = false; l.kitTemplate = "custom" }
+        if !clock.playing, let v = euclideousKitScaledVelocity(base: 100, kitVel: Int(lines[lane].kitVelResolved[rank])) { onKitAudition(lane, note, Int(v)) }
+    }
+    private func kitStepNote(_ lane: Int, _ rank: Int, by delta: Int, first: Bool) {
+        guard lane < lines.count else { return }
+        let cur = Int(lines[lane].kitNotesResolved[rank]); let nn = max(0, min(127, cur + delta)); guard nn != cur else { return }
+        kitEditNote(lane, rank, nn, first: first)
+    }
+    /// §3.6 edit the selected rank's velocity.
+    private func kitEditVel(_ lane: Int, _ rank: Int, _ vel: Int, first: Bool) {
+        guard lane < lines.count else { return }
+        editStep(lane, first) { l in var vv = l.kitVelResolved; vv[rank] = UInt8(max(0, min(100, vel))); l.kitVel = vv; l.kitNotes = l.kitNotesResolved; l.kitFollowsDefault = false; l.kitTemplate = "custom" }
+    }
+    /// §3.5 CONVERT TO DRUM — the selected rank's note becomes drumNote, mode DRUM; drum fields + the kit kept. One undo step.
+    private func kitConvertToDrum(_ lane: Int) {
+        guard lane < lines.count else { return }
+        let n = lines[lane].kitNotesResolved[lastSelectedKitRank[lane] ?? 0]
+        edit(lane) { $0.drumNote = n; $0.laneMode = .drum }
+    }
+    /// §3.4 NOTE row — the DRUM selector editing the SELECTED rank's note + CONVERT TO DRUM.
+    private func kitNoteRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let rank = lastSelectedKitRank[idx] ?? 0
+        let note = Int(line.kitNotesResolved[rank])
+        let f = euclideousDrumRowFrames(rowWidth: fullWidth, rowHeight: height, labelW: EuclideousPoolTabMetrics.labelColumn)
+        let laneCol = lane100(accent)
+        let scrubbing = drumScrubLane == idx
+        let shown = scrubbing ? drumScrubNote : note
+        func posTL<V: View>(_ r: CGRect, _ content: () -> V) -> some View { content().frame(width: r.width, height: r.height, alignment: .center).offset(x: r.minX, y: r.minY) }
+        return AnyView(ZStack(alignment: .topLeading) {
+            posTL(f.label) { Text("NOTE").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: f.label.width, alignment: .leading).accessibilityHidden(true) }
+            posTL(f.selector) { RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x1E2026)).overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(laneCol, lineWidth: 1.5)) }
+            posTL(f.leftDivider) { Rectangle().fill(Color(hex: 0x33363E)) }
+            posTL(f.rightDivider) { Rectangle().fill(Color(hex: 0x33363E)) }
+            posTL(f.field) { kitNoteField(idx: idx, rank: rank, shown: shown, note: note, laneCol: laneCol, scrubbing: scrubbing) }
+            posTL(f.decButton) { kitNoteChevron(idx: idx, rank: rank, left: true, laneCol: laneCol) }
+            posTL(f.incButton) { kitNoteChevron(idx: idx, rank: rank, left: false, laneCol: laneCol) }
+            posTL(f.convert) { kitConvertButton(idx: idx) }
+        }
+        .frame(width: fullWidth, height: height, alignment: .topLeading))
+    }
+    private func kitNoteField(idx: Int, rank: Int, shown: Int, note: Int, laneCol: Color, scrubbing: Bool) -> some View {
+        ZStack(alignment: .topLeading) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text("\(shown)").font(.system(size: 24, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                Text(euclideousNoteViewName(UInt8(shown), flatKey: false)).font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            Text("\(rank + 1)").font(.system(size: 7, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).padding(.leading, 6).padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 6).fill(scrubbing ? laneCol.opacity(0.18) : Color.clear))
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { v in
+                let starting = drumScrubLane != idx
+                if starting { drumScrubLane = idx; drumScrubStartNote = note; drumScrubNote = note; drumScrubWrote = false }
+                let nn = euclideousDrumScrubNote(startNote: drumScrubStartNote, startY: v.startLocation.y, y: v.location.y)
+                guard nn != drumScrubNote else { return }
+                drumScrubNote = nn
+                let cur = idx < lines.count ? Int(lines[idx].kitNotesResolved[rank]) : note
+                if nn != cur { kitEditNote(idx, rank, nn, first: !drumScrubWrote); drumScrubWrote = true }
+            }
+            .onEnded { _ in drumScrubLane = nil })
+        .accessibilityElement(children: .ignore).accessibilityLabel("Rank \(rank + 1) note").accessibilityValue("\(shown), \(euclideousAccessibleNoteName(UInt8(shown), flatKey: false))")
+        .accessibilityAdjustableAction { d in kitStepNote(idx, rank, by: d == .increment ? 1 : -1, first: true) }
+    }
+    private func kitNoteChevron(idx: Int, rank: Int, left: Bool, laneCol: Color) -> some View {
+        DrumSelectorChevron(left: left).stroke(laneCol, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+            .frame(width: 10, height: 16).frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard drumStepTask == nil else { return }
+                    kitStepNote(idx, rank, by: left ? -1 : 1, first: true)
+                    drumStepTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 400_000_000)
+                        while !Task.isCancelled { kitStepNote(idx, rank, by: left ? -1 : 1, first: false); try? await Task.sleep(nanoseconds: 80_000_000) }
+                    }
+                }
+                .onEnded { _ in drumStepTask?.cancel(); drumStepTask = nil })
+            .accessibilityElement(children: .ignore).accessibilityLabel(left ? "Note down" : "Note up").accessibilityAddTraits(.isButton)
+    }
+    private func kitConvertButton(idx: Int) -> some View {
+        VStack(spacing: 1) { Text("CONVERT").tracking(0.1 * 9.5); Text("TO DRUM").tracking(0.1 * 9.5) }
+            .font(.system(size: 9.5, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xB4B9C1)).multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x22242A)))
+            .contentShape(Rectangle()).onTapGesture { kitConvertToDrum(idx) }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Convert to drum").accessibilityAddTraits(.isButton)
+    }
+    /// §3.6 VEL row — a single-thumb slider for the selected rank's velocity.
+    private func kitVelRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let rank = lastSelectedKitRank[idx] ?? 0
+        let vel = Int(line.kitVelResolved[rank])
+        let labelW = EuclideousPoolTabMetrics.labelColumn, valW: CGFloat = 46, gap: CGFloat = 8
+        let sliderW = max(1, fullWidth - labelW - valW - gap * 2)
+        return AnyView(HStack(spacing: 0) {
+            Text("VEL").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            Spacer(minLength: gap)
+            EuclideousKitVelSlider(value: vel, laneColor: lane100(accent), width: sliderW, height: height, onChange: { v, first in kitEditVel(idx, rank, v, first: first) })
+                .accessibilityElement(children: .ignore).accessibilityLabel("Rank \(rank + 1) velocity").accessibilityValue("\(vel) percent")
+                .accessibilityAdjustableAction { d in kitEditVel(idx, rank, max(0, min(100, vel + (d == .increment ? 5 : -5))), first: true) }
+            Spacer(minLength: gap)
+            Text("\(vel)%").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).frame(width: valW, alignment: .trailing)
+        }
+        .frame(width: fullWidth, height: height))
+    }
+    /// §4.3 SAVE — the system text alert, store the lane's kit as a user template, set `kitTemplate = user:<id>`.
+    private func presentSaveKitAlert(lane: Int) {
+        guard lane < lines.count else { return }
+        let prefill = KitTemplateStore.prefillName(KitTemplateStore.load().map { $0.name })
+        presentKitNameAlert(title: "SAVE KIT", prefill: prefill) { name in
+            guard lane < self.lines.count else { return }
+            let id = KitTemplateStore.save(name: name, notes: self.lines[lane].kitNotesResolved, vel: self.lines[lane].kitVelResolved)
+            self.edit(lane) { $0.kitTemplate = "user:\(id)"; $0.kitFollowsDefault = false }
+        }
+    }
+    /// §4.5 rename a user template (the same alert, title RENAME KIT).
+    private func presentRenameKitAlert(id: String) {
+        presentKitNameAlert(title: "RENAME KIT", prefill: userKitName(id) ?? "") { name in KitTemplateStore.rename(id: id, to: name) }
+    }
+    /// A text prompt (iOS-15 safe — SwiftUI's TextField-in-.alert is iOS 16; UIApplication.shared is extension-banned). Routed
+    /// through `KitNameAlertPresenter` (mounted in `pageBody`), which presents a UIAlertController from its OWN window.
+    private func presentKitNameAlert(title: String, prefill: String, onSave: @escaping (String) -> Void) {
+        kitNameAlert = KitNameAlertRequest(title: title, prefill: prefill, onSave: onSave)
+    }
+    /// §4.2 the standalone kit picker (over the four lane cards' block): a KIT header + close, a USER section first, then GM / APPS / HARDWARE.
+    private func kitPickerOverlay(lane: Int, block: CGSize) -> some View {
+        let current = lane < lines.count ? lines[lane].kitTemplateResolved : "gm"
+        #if DEBUG
+        let builtins = euclideousKitTemplatesForPicker(includeCommunity: true)
+        #else
+        let builtins = euclideousKitTemplatesForPicker(includeCommunity: false)
+        #endif
+        let users = KitTemplateStore.load()
+        func pickerRow(_ name: String, lit: Bool, _ tap: @escaping () -> Void) -> some View {
+            HStack(spacing: 8) {
+                if lit { Circle().fill(Color(hex: 0xF2F4F7)).frame(width: 8, height: 8) }
+                Text(name).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(Color(hex: lit ? 0x0D0F14 : 0xF2F4F7))
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 12).frame(maxWidth: .infinity, minHeight: 40).frame(height: 40)
+            .background(RoundedRectangle(cornerRadius: 8).fill(lit ? Color(hex: 0xEDEFF3) : Color(hex: 0x2A2D34)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
+            .accessibilityElement(children: .ignore).accessibilityLabel(name).accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
+        }
+        return VStack(spacing: 10) {
+            HStack {
+                Text("KIT").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(Color(hex: 0xF2F4F7)).accessibilityAddTraits(.isHeader)
+                Spacer()
+                Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(Color(hex: 0xAAB0BA)).frame(width: 40, height: 40).contentShape(Rectangle()).onTapGesture { kitPickerLane = nil }.accessibilityLabel("Close")
+            }
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if !users.isEmpty {
+                        Text("USER").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.1 * 10).foregroundColor(Color(hex: 0x8A909A))
+                        ForEach(users) { u in
+                            pickerRow(u.name, lit: current == "user:\(u.id)") { applyUserKit(lane, u); kitPickerLane = nil }
+                                .contextMenu {
+                                    Button("Rename") { presentRenameKitAlert(id: u.id) }
+                                    Button("Delete", role: .destructive) { KitTemplateStore.delete(id: u.id) }
+                                }
+                                .accessibilityAction(named: "Rename") { presentRenameKitAlert(id: u.id) }
+                                .accessibilityAction(named: "Delete") { KitTemplateStore.delete(id: u.id) }
+                        }
+                    }
+                    ForEach(builtins, id: \.id) { t in pickerRow(t.name, lit: current == t.id) { applyBuiltinKit(lane, t); kitPickerLane = nil } }
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: block.width, height: block.height, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1A1C21)).overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color(hex: 0x2E3138), lineWidth: 1)))
+    }
+    /// §2.3 apply a built-in template: its notes + 100 velocities + the id; stop following; no default-kit change. One undo step.
+    private func applyBuiltinKit(_ lane: Int, _ t: EuclideousKitTemplate) {
+        edit(lane) { $0.kitNotes = t.notes; $0.kitVel = Array(repeating: 100, count: 8); $0.kitTemplate = t.id; $0.kitFollowsDefault = false }
+        lastSelectedKitRank[lane] = 0
+    }
+    /// §4.2 apply a user template: its stored notes + velocities. One undo step.
+    private func applyUserKit(_ lane: Int, _ u: EuclideousUserKit) {
+        edit(lane) { $0.kitNotes = u.notes; $0.kitVel = u.vel; $0.kitTemplate = "user:\(u.id)"; $0.kitFollowsDefault = false }
+        lastSelectedKitRank[lane] = 0
     }
     /// DRUM MODE §3.1: the KIT | DRUM switch — two equal segments in a #17191E well. The lit segment (while kitOn) is #EDEFF3 / ink #0D0F14 with the lane dot; unlit is #8A909A, no fill; with kitOn off neither is lit. A tap on an unlit
     /// segment sets kitOn + that fixedMode; a tap on the lit segment turns kitOn off (returns the stored sources). One undo step.

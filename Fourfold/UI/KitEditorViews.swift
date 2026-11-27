@@ -407,3 +407,24 @@ struct EuclideousDrumVelSlider: View {
         RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xF2F4F7)).frame(width: thumbW, height: thumbH).shadow(color: Color.black.opacity(0.5), radius: 6, x: 0, y: 2)
     }
 }
+
+/// KIT CARD V2 §3.6 — a single-thumb velocity slider (0…100): track 4 tall, fill 0→value in the lane colour, a 14×20 thumb;
+/// the row's full height is the touch area and a touch jumps the thumb to the finger. One undo step per drag (`first`).
+struct EuclideousKitVelSlider: View {
+    let value: Int; let laneColor: Color; let width: CGFloat; let height: CGFloat
+    var onChange: (Int, Bool) -> Void
+    @State private var dragging = false
+    private let thumbW: CGFloat = 14, thumbH: CGFloat = 20, trackH: CGFloat = 4
+    private func x(_ v: Int) -> CGFloat { let inset = thumbW / 2; return inset + (width - thumbW) * CGFloat(max(0, min(100, v))) / 100 }
+    private func valueAt(_ px: CGFloat) -> Int { let inset = thumbW / 2; return max(0, min(100, Int((((px - inset) / max(1, width - thumbW)) * 100).rounded()))) }
+    var body: some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0x2A2D34)).frame(width: width, height: trackH)
+            RoundedRectangle(cornerRadius: 2).fill(laneColor).frame(width: max(0, x(value)), height: trackH)
+            RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0xF2F4F7)).frame(width: thumbW, height: thumbH).shadow(color: Color.black.opacity(0.5), radius: 6, x: 0, y: 2).offset(x: x(value) - thumbW / 2)
+        }
+        .frame(width: width, height: height, alignment: .leading)
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0).onChanged { g in onChange(valueAt(g.location.x), !dragging); dragging = true }.onEnded { _ in dragging = false })
+    }
+}
